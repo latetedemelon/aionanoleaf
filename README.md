@@ -47,3 +47,14 @@ async def main():
         await nanoleaf.deauthorize()
 run(main())
 ```
+
+## Digital Twin
+```python
+from aionanoleaf.digital_twin import DigitalTwin
+
+twin = await DigitalTwin.create(light)   # factory resolves layout & IDs
+await twin.set_color(panel_id, (255,0,0))
+await twin.set_all_colors((0,0,0))
+await twin.sync(transition_ms=100)       # builds & PUTs static scene
+colors = twin.colors                     # dict view {id: (r,g,b)}
+```

@@ -16,8 +16,17 @@
 # along with aionanoleaf.  If not, see <https://www.gnu.org/licenses/>.
 
 """aioNanoleaf."""
-from .nanoleaf import *  # noqa: F401, F403
+
 from .events import *  # noqa: F401, F403
 from .exceptions import *  # noqa: F401, F403
 from .layout import *  # noqa: F401, F403
-from .digital_twin import *
+from .digital_twin import *  # noqa: F401, F403
+
+# ``nanoleaf`` requires ``aiohttp`` which may not be installed in minimal test
+# environments.  Import it lazily so that consumers interested only in the
+# helpers (e.g. ``DigitalTwin``) can still use the package without the optional
+# dependency.
+try:  # pragma: no cover - optional dependency handling
+    from .nanoleaf import *  # noqa: F401, F403
+except ModuleNotFoundError:  # pragma: no cover - aiohttp not available
+    pass

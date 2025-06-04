@@ -73,7 +73,7 @@ class Nanoleaf:
         self._host = host
         self._auth_token = auth_token
         self._port = port
-        self._retries = 3
+        self._retries = retries
 
     @property
     def host(self) -> str:

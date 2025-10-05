@@ -1,91 +1,109 @@
-"""Unit‑tests for the proposed `DigitalTwin` helper that will live in
-`aionanoleaf.digital_twin`.
-
-Requirements:
-* pytest
-* pytest‑asyncio ≥ 0.20 (for the async tests)
-
-Run:   pytest -q test_digital_twin.py
-"""
-
-import asyncio
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
-
+# tests/test_digital_twin.py
 import pytest
-from aionanoleaf.digital_twin import DigitalTwin, _build_anim  # helper exposed in module
+from types import SimpleNamespace
+from aionanoleaf.digital_twin import DigitalTwin, _build_anim
 
-# ---------------------------------------------------------------------------
-# Test fixtures – a minimal fake Nanoleaf object
-# ---------------------------------------------------------------------------
-class FakePanel(SimpleNamespace):
-    """Simple stand‑in for a layout.Panel from aionanoleaf."""
+
+class DummyPanel:
     def __init__(self, pid, x, y):
-        super().__init__(id=pid, x=x, y=y)
+        self.id = pid
+        self.x = x
+        self.y = y
 
-class FakeLight(SimpleNamespace):
-    """Mimics just enough of aionanoleaf.Nanoleaf for DigitalTwin."""
 
-    def __init__(self, panels):
-        super().__init__()
-        self.layout = SimpleNamespace(panels=panels)
-        # Async stub to satisfy DT.create()
-        self.get_info = AsyncMock(return_value=None)
-        # write_effect is where the HTTP body ends up
-        self.write_effect = AsyncMock(return_value=None)
+class DummyLight:
+    def __init__(self):
+        # Unordered on purpose to verify layout ordering
+        self.panels = [
+            DummyPanel(20,  5,  0),
+            DummyPanel(10,  0,  0),
+            DummyPanel(30, 10, 10),
+        ]
+        self.writes = []
 
-# Small deterministic layout: ids 30(left‑bottom), 10(left‑top), 20(right)
-PANELS = [
-    FakePanel(10, 0, 0),
-    FakePanel(20, 100, 0),
-    FakePanel(30, 0, 100),
-]
+    async def get_info(self):
+        # no-op; in some clients this populates layout
+        return {"ok": True}
 
-@pytest.fixture
-async def twin():
-    light = FakeLight(PANELS)
-    dt = await DigitalTwin.create(light)
-    return dt
+    async def write_effect(self, payload):
+        self.writes.append(payload)
 
-# ---------------------------------------------------------------------------
-# 1) Panel‑sort test: verify that animData order is left‑to‑right then top‑to‑bottom
-# ---------------------------------------------------------------------------
+
 @pytest.mark.asyncio
-async def test_panel_sort_left_to_right(twin):
-    """animData should list panelIds sorted by x, then y."""
-    anim = _build_anim(twin._ids_ordered, {pid: (0, 0, 0) for pid in twin._ids})
-    # Extract ids back from animData string after the leading count
-    parts = list(map(int, anim.split()))
-    ids_in_anim = [parts[i] for i in range(1, len(parts), 7)]
-    assert ids_in_anim == [10, 30, 20]  # x asc (0,0) & (0,100) then x=100
+async def test_create_orders_ids_by_xy():
+    nl = DummyLight()
+    twin = await DigitalTwin.create(nl)
+    assert twin.ids == [10, 20, 30]  # x asc, then y asc
 
-# ---------------------------------------------------------------------------
-# 2) animData build test: verify RGB insertion and record structure
-# ---------------------------------------------------------------------------
+
+def test_build_anim_string_shape():
+    colours = {1: (10, 20, 30), 5: (1, 2, 3)}
+    # Order matters: supply in the expected device order
+    s = _build_anim([1, 5], colours, transition=75)
+    parts = list(map(int, s.split()))
+    # count + 2 records x 7 ints each = 1 + 14 = 15 parts
+    assert len(parts) == 15
+    assert parts[0] == 2
+    # record 1 (panel 1)
+    assert parts[1:8] == [1, 1, 10, 20, 30, 0, 75]
+    # record 2 (panel 5)
+    assert parts[8:15] == [5, 1, 1, 2, 3, 0, 75]
+
+
 @pytest.mark.asyncio
-async def test_animdata_build_colours(twin):
-    colours = {pid: (0, 0, 0) for pid in twin._ids}
-    colours[20] = (255, 0, 0)  # paint panel 20 red
-    anim = _build_anim(twin._ids_ordered, colours, transition=5)
-    expected = "3 10 1 0 0 0 0 5 30 1 0 0 0 0 5 20 1 255 0 0 0 5"
-    assert anim == expected
+async def test_sync_default_display_and_values():
+    nl = DummyLight()
+    twin = await DigitalTwin.create(nl)
+    # paint two panels
+    await twin.set_color(10, (255, 0, 0))
+    await twin.set_color(20, (0, 0, 300))  # clamps to 255
+    await twin.sync(transition_ms=50)      # default command="display"
 
-# ---------------------------------------------------------------------------
-# 3) HTTP body test: ensure sync() pushes valid static scene payload
-# ---------------------------------------------------------------------------
-@pytest.mark.asyncio
-async def test_sync_http_body(twin):
-    # paint panel 10 green and sync
-    await twin.set_color(10, (0, 255, 0))
-    await twin.sync(transition_ms=10)
-
-    twin._nl.write_effect.assert_awaited_once()
-    payload = twin._nl.write_effect.call_args.args[0]
-
-    # Basic structure checks
+    assert len(nl.writes) == 1
+    payload = nl.writes[0]
     assert payload["command"] == "display"
     assert payload["animType"] == "static"
-    assert payload["palette"] == []
-    # animData must start with number of panels and include 10 and RGB 0 255 0
-    assert payload["animData"].startswith("3 ")
-    assert "10 1 0 255 0" in payload["animData"]
+    parts = list(map(int, payload["animData"].split()))
+    # 3 panels total (we didn't limit to subset)
+    assert parts[0] == 3
+    # panel 10 frame => 255,0,0
+    # find record for panel id 10:
+    idx = parts.index(10)
+    assert parts[idx:idx+7] == [10, 1, 255, 0, 0, 0, 50]
+    # panel 20 frame => 0,0,255 (clamped)
+    idx = parts.index(20)
+    assert parts[idx:idx+7] == [20, 1, 0, 0, 255, 0, 50]
+
+
+@pytest.mark.asyncio
+async def test_sync_subset_display_temp():
+    nl = DummyLight()
+    twin = await DigitalTwin.create(nl)
+    await twin.set_color(10, (1, 2, 3))
+    await twin.set_color(20, (9, 8, 7))
+    # Only push panel 20, and make it temporary
+    await twin.sync(transition_ms=5, command="displayTemp", only=[20])
+
+    assert len(nl.writes) == 1
+    payload = nl.writes[0]
+    assert payload["command"] == "displayTemp"
+    parts = list(map(int, payload["animData"].split()))
+    assert parts[0] == 1  # single record
+    assert parts[1:8] == [20, 1, 9, 8, 7, 0, 5]
+
+
+@pytest.mark.asyncio
+async def test_set_hex_and_validation_errors():
+    nl = DummyLight()
+    twin = await DigitalTwin.create(nl)
+    await twin.set_hex(10, "#0A0B0C")
+    assert twin.get_color(10) == (10, 11, 12)
+
+    with pytest.raises(ValueError):
+        await twin.set_hex(10, "GGHHII")  # invalid hex
+
+    with pytest.raises(ValueError):
+        await twin.set_color(9999, (1, 2, 3))  # unknown panel id
+
+    with pytest.raises(ValueError):
+        await twin.set_color(10, (256, 0, 0))  # out of range

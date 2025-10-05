@@ -1,27 +1,21 @@
-# examples/digital_twin_blink_demo.py
-"""
-Blink two panels temporarily and restore the previous effect.
-"""
+"""Blink two panels temporarily, then restore the previous effect."""
 
-import asyncio
-from aiohttp import ClientSession
+try:
+    from aiohttp import ClientSession  # type: ignore
+except Exception:  # pragma: no cover
+    ClientSession = object  # type: ignore
+
+from asyncio import run
 from aionanoleaf import Nanoleaf
 from aionanoleaf.digital_twin import DigitalTwin
 
-HOST = "192.168.0.50"
-TOKEN = None  # set if your fork requires explicit token
-
-
-async def make_client(session: ClientSession) -> Nanoleaf:
-    try:
-        return Nanoleaf(session, HOST, token=TOKEN)  # type: ignore[arg-type]
-    except TypeError:
-        return Nanoleaf(session, HOST)
+HOST = "192.168.0.50"  # set me
 
 
 async def main():
-    async with ClientSession() as session:
-        nl = await make_client(session)
+    """Run the demo."""
+    async with ClientSession() as session:  # type: ignore[operator]
+        nl = Nanoleaf(session, HOST)  # type: ignore[call-arg]
         twin = await DigitalTwin.create(nl)
 
         ids = twin.ids
@@ -32,11 +26,9 @@ async def main():
         await twin.set_hex(a, "#FF9900")
         await twin.set_hex(b, "#0099FF")
 
-        # Blink temporarily at 70% brightness, then restore previous effect
         await twin.apply_temp(transition_ms=60, duration_ms=2000, only=[a, b], brightness=70)
-
         print(f"Blinked panels {a} and {b}, restored previous effect.")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    run(main())

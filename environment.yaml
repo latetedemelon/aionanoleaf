@@ -1,0 +1,14 @@
+name: aionanoleaf
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - aiohttp>=3.9
+      - typing-extensions>=4.7
+      - pytest>=7.4
+      - pytest-asyncio>=0.23
+      - flake8>=6.1
+      - anyio>=4
+      - build

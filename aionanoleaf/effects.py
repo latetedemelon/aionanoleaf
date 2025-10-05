@@ -18,11 +18,13 @@ class EffectsClient:
 
     async def get_effects_list(self) -> list[str]:
         """Return the list of available effect names."""
+        # pylint: disable=protected-access
         data = await self._nl._get_json("/effects/effectsList")  # type: ignore[attr-defined]
         return [str(x) for x in data] if isinstance(data, Sequence) else []
 
     async def get_selected_effect(self) -> str:
         """Return the currently selected effect name."""
+        # pylint: disable=protected-access
         data = await self._nl._get_json("/effects/select")  # type: ignore[attr-defined]
         if isinstance(data, str):
             return data
@@ -32,11 +34,14 @@ class EffectsClient:
 
     async def select_effect(self, name: str) -> None:
         """Select an existing effect by name."""
+        # pylint: disable=protected-access
         await self._nl._put_json("/effects", {"select": str(name)})  # type: ignore[attr-defined]
 
     async def write_effect(self, write_dict: Mapping[str, object]) -> None:
         """PUT /effects with a {'write': {...}} payload (no validation)."""
-        await self._nl._put_json("/effects", {"write": dict(write_dict)})  # type: ignore[attr-defined]
+        # pylint: disable=protected-access
+        body = {"write": dict(write_dict)}
+        await self._nl._put_json("/effects", body)  # type: ignore[attr-defined]
 
     # Convenience aliases (optional)
     async def write_custom_effect(
@@ -47,7 +52,7 @@ class EffectsClient:
         color_type: str = "HSB",
         loop: bool = False,
         palette: Sequence[Mapping[str, Any]] | None = None,
-    ) -> None:
+    ) -> None:  # pylint: disable=too-many-arguments
         """Add/replace a custom effect and select it immediately."""
         payload: dict[str, Any] = {
             "command": "add",

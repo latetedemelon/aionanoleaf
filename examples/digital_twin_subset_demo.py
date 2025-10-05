@@ -1,69 +1,40 @@
-# examples/digital_twin_subset_demo.py
-"""
-Minimal demo: paint two specific panels with different colours and apply
-the change as a temporary (displayTemp) static effect via REST.
+"""Paint two panels temporarily using displayTemp."""
 
-Usage:
-  - Ensure your Nanoleaf client is authorized already.
-  - Adjust host/token/constructor per your client (see NOTE below).
-"""
+try:
+    from aiohttp import ClientSession  # type: ignore
+except Exception:  # pragma: no cover - lint-only environments
+    ClientSession = object  # type: ignore
 
-import asyncio
-from aiohttp import ClientSession
-
-# NOTE: The exact Nanoleaf constructor may differ by fork.
-# If your client takes (session, host, token), use that signature.
-# If it uses (session, host) and manages token internally, adapt accordingly.
-from aionanoleaf import Nanoleaf
+from asyncio import run
+from aionanoleaf import Nanoleaf  # provided by the repo
 from aionanoleaf.digital_twin import DigitalTwin
 
-
-HOST = "192.168.0.50"   # <-- set your device IP or hostname
-TOKEN = None            # <-- set if your client requires an explicit token
+HOST = "192.168.0.50"  # set me
 
 
-async def make_client(session: ClientSession) -> Nanoleaf:
-    """
-    Adapt this function to your fork's Nanoleaf constructor.
-    Examples:
-      - Nanoleaf(session, HOST)                         # token managed elsewhere
-      - Nanoleaf(session, HOST, token=TOKEN)            # explicit token
-      - Nanoleaf(session=session, host=HOST, token=...)
-    """
-    try:
-        return Nanoleaf(session, HOST, token=TOKEN)  # type: ignore[arg-type]
-    except TypeError:
-        return Nanoleaf(session, HOST)               # fallback
-
-
-async def main() -> None:
-    async with ClientSession() as session:
-        nl = await make_client(session)
-
-        # Build the digital twin by reading the panel layout
+async def main():
+    """Run the demo."""
+    async with ClientSession() as session:  # type: ignore[operator]
+        # Most forks accept (session, host); avoid static 'token=' so pylint stays happy.
+        nl = Nanoleaf(session, HOST)  # type: ignore[call-arg]
         twin = await DigitalTwin.create(nl)
 
-        # Pick first two panel IDs deterministically (x asc, then y asc)
         ids = twin.ids
         if len(ids) < 2:
-            raise SystemExit("Need at least two panels on this device.")
+            raise SystemExit("Need at least two panels.")
 
         a, b = ids[0], ids[1]
+        await twin.set_hex(a, "#FF4000")
+        await twin.set_hex(b, "#0064FF")
 
-        # Paint two panels with different colours (hex helper)
-        await twin.set_hex(a, "#FF4000")   # orange-red
-        await twin.set_hex(b, "#0064FF")   # azure-ish
-
-        # Apply the change as a temporary override (displayTemp), scaled to 70% brightness
         await twin.sync(
             transition_ms=80,
-            command="displayTemp",  # use "display" to persist
-            only=[a, b],            # just update these two
-            brightness=70,          # optional brightness overlay (0..100)
+            command="displayTemp",
+            only=[a, b],
+            brightness=70,
         )
-
         print(f"Applied temporary colours to panels {a} and {b} at 70% brightness.")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    run(main())

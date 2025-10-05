@@ -1,0 +1,19 @@
+[MASTER]
+ignore=tests,examples
+persistent=yes
+extension-pkg-allow-list=
+load-plugins=
+
+[MESSAGES CONTROL]
+disable=
+    # docstrings / style
+    C0114,C0115,C0116,
+    C0301,
+    # OO / complexity
+    R0902,R0903,R0904,R0912,R0913,R0914,R0915,
+    # convenience / refactor nags
+    R0801,R1714,
+    # imports & protected access in this project setup
+    E0401,W0212,C0415,
+    # common noisy warnings in original upstream code
+    W0201,W0612,W0718

@@ -16,7 +16,8 @@
 # along with aionanoleaf.  If not, see <https://www.gnu.org/licenses/>.
 
 """aioNanoleaf."""
-
+from .layout import LayoutClient  # noqa: F401
+from .rhythm import RhythmClient  # noqa: F401
 from .events import *  # noqa: F401, F403
 from .exceptions import *  # noqa: F401, F403
 from .layout import *  # noqa: F401, F403

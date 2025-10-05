@@ -88,6 +88,89 @@ class _Panel:  # pylint: disable=too-few-public-methods
     y: int
 
 
+# ----------------------------- layout helpers ----------------------------- #
+
+def _extract_from_position_list(pos: Any) -> List[_Panel]:
+    """Convert positionData list into _Panel records."""
+    panels: List[_Panel] = []
+    if isinstance(pos, list):
+        for p in pos:
+            if not isinstance(p, dict):
+                continue
+            pid = p.get("panelId")
+            x = p.get("x")
+            y = p.get("y")
+            if pid is not None and x is not None and y is not None:
+                panels.append(_Panel(int(pid), int(x), int(y)))
+    return panels
+
+
+async def _maybe_populate_info(nl: Any) -> None:
+    """Some clients lazily populate info/layout; call get_info() if present."""
+    get_info = getattr(nl, "get_info", None)
+    if callable(get_info):
+        res = get_info()
+        if hasattr(res, "__await__"):
+            await res
+
+
+async def _get_layout_positions(nl: Any) -> List[_Panel]:
+    """Try explicit layout endpoints (preferred)."""
+    layout = None
+    if callable(getattr(nl, "get_panel_layout", None)):
+        layout = await nl.get_panel_layout()
+    elif callable(getattr(nl, "panel_layout", None)):
+        layout = await nl.panel_layout()
+
+    if isinstance(layout, dict):
+        return _extract_from_position_list(layout.get("positionData"))
+    return []
+
+
+def _get_info_positions(nl: Any) -> List[_Panel]:
+    """Try info/_info dicts for panelLayout.layout.positionData."""
+    info = getattr(nl, "info", None) or getattr(nl, "_info", None)
+    if not isinstance(info, dict):
+        return []
+    try:
+        pos = (
+            info.get("panelLayout", {})
+            .get("layout", {})
+            .get("positionData", None)
+        )
+    except (AttributeError, KeyError, TypeError):
+        pos = None
+    return _extract_from_position_list(pos)
+
+
+def _get_object_positions(nl: Any) -> List[_Panel]:
+    """Fallback: infer from nl.panels/_panels objects with id/x/y attributes."""
+    candidates = getattr(nl, "panels", None) or getattr(nl, "_panels", None)
+    panels: List[_Panel] = []
+    if not isinstance(candidates, (list, tuple)):
+        return panels
+
+    for obj in candidates:
+        # Only fall back if attribute truly missing (0 is valid).
+        pid = getattr(obj, "panelId", None)
+        if pid is None:
+            pid = getattr(obj, "id", None)
+
+        x = getattr(obj, "x", None)
+        if x is None:
+            x = getattr(obj, "x_coordinate", None)
+
+        y = getattr(obj, "y", None)
+        if y is None:
+            y = getattr(obj, "y_coordinate", None)
+
+        if pid is not None and x is not None and y is not None:
+            panels.append(_Panel(int(pid), int(x), int(y)))
+    return panels
+
+
+# --------------------------------- twin ---------------------------------- #
+
 class DigitalTwin:
     """Per-panel static colour control via REST Effects write."""
 
@@ -103,73 +186,26 @@ class DigitalTwin:
     @classmethod
     async def create(cls, nl: Any) -> "DigitalTwin":
         """Fetch layout/positions from the device and return a twin."""
-        # Some clients lazily populate info/layout
-        get_info = getattr(nl, "get_info", None)
-        if callable(get_info):
-            result = get_info()
-            if hasattr(result, "__await__"):
-                await result
+        await _maybe_populate_info(nl)
 
-        layout = None
-        if callable(getattr(nl, "get_panel_layout", None)):
-            layout = await nl.get_panel_layout()
-        elif callable(getattr(nl, "panel_layout", None)):
-            layout = await nl.panel_layout()
+        # Try preferred → fallback strategies
+        for getter in (_get_layout_positions,):
+            panels = await getter(nl)  # type: ignore[misc]
+            if panels:
+                return cls(nl, panels)
 
-        panels: List[_Panel] = []
-        pos = None
+        panels = _get_info_positions(nl)
+        if panels:
+            return cls(nl, panels)
 
-        if isinstance(layout, dict):
-            pos = layout.get("positionData")
+        panels = _get_object_positions(nl)
+        if panels:
+            return cls(nl, panels)
 
-        if pos is None:
-            info = getattr(nl, "info", None) or getattr(nl, "_info", None)
-            if isinstance(info, dict):
-                # Be liberal with missing keys across firmwares
-                try:
-                    pos = (
-                        info.get("panelLayout", {})
-                        .get("layout", {})
-                        .get("positionData", None)
-                    )
-                except (AttributeError, KeyError, TypeError):
-                    pos = None
-
-        if isinstance(pos, list) and pos:
-            for p in pos:
-                pid = p.get("panelId")
-                x = p.get("x")
-                y = p.get("y")
-                if pid is not None and x is not None and y is not None:
-                    panels.append(_Panel(int(pid), int(x), int(y)))
-
-        if not panels:
-            candidates = getattr(nl, "panels", None) or getattr(nl, "_panels", None)
-            if isinstance(candidates, (list, tuple)) and candidates:
-                for obj in candidates:
-                    # DO NOT treat 0 as falsy; only fall back if the attribute is truly missing
-                    pid = getattr(obj, "panelId", None)
-                    if pid is None:
-                        pid = getattr(obj, "id", None)
-
-                    x = getattr(obj, "x", None)
-                    if x is None:
-                        x = getattr(obj, "x_coordinate", None)
-
-                    y = getattr(obj, "y", None)
-                    if y is None:
-                        y = getattr(obj, "y_coordinate", None)
-
-                    if pid is not None and x is not None and y is not None:
-                        panels.append(_Panel(int(pid), int(x), int(y)))
-
-        if not panels:
-            raise RuntimeError(
-                "Panel layout not found; per-panel control requires a panel device. "
-                "If this is an Essentials bulb/strip, use whole-device colour/state APIs."
-            )
-
-        return cls(nl, panels)
+        raise RuntimeError(
+            "Panel layout not found; per-panel control requires a panel device. "
+            "If this is an Essentials bulb/strip, use whole-device colour/state APIs."
+        )
 
     # ---------- Introspection ----------
 
@@ -232,65 +268,3 @@ class DigitalTwin:
         payload = {
             "command": command,
             "version": "1.0",
-            "animType": "static",
-            "animData": anim,
-            "palette": [],
-            "loop": False,
-        }
-
-        write_effect = getattr(self._nl, "write_effect", None)
-        if callable(write_effect):
-            result = write_effect(payload)
-            if hasattr(result, "__await__"):
-                await result
-            return
-
-        for name in ("effects_write", "display_effect"):
-            meth = getattr(self._nl, name, None)
-            if callable(meth):
-                result = meth(payload)
-                if hasattr(result, "__await__"):
-                    await result
-                return
-
-        raise RuntimeError(
-            "Nanoleaf client does not expose a write_effect/effects_write/display_effect method."
-        )
-
-    async def apply_temp(
-        self,
-        *,
-        transition_ms: int = 60,
-        duration_ms: int = 2000,
-        only: Optional[Iterable[int]] = None,
-        brightness: Optional[int] = None,
-    ) -> None:
-        """Blink: temporarily apply the twin colours, then restore previous effect."""
-        ef = EffectsClient(self._nl)
-
-        prev = None
-        try:
-            prev = await ef.get_selected_effect()
-        except Exception:
-            prev = None  # best-effort
-
-        try:
-            await self.sync(
-                transition_ms=transition_ms,
-                command="displayTemp",
-                only=only,
-                brightness=brightness,
-            )
-            await self._sleep_ms(max(0, int(duration_ms)))
-        finally:
-            if prev:
-                try:
-                    await ef.select_effect(prev)
-                except Exception:
-                    pass  # best-effort restoration
-
-    @staticmethod
-    async def _sleep_ms(ms: int) -> None:
-        """Await sleep for ms milliseconds (tiny wrapper for testing)."""
-        import asyncio  # local import keeps module imports minimal
-        await asyncio.sleep(ms / 1000.0)

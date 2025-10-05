@@ -1,6 +1,5 @@
 # tests/test_digital_twin.py
 import pytest
-from types import SimpleNamespace
 from aionanoleaf.digital_twin import DigitalTwin, _build_anim
 
 
@@ -36,9 +35,8 @@ async def test_create_orders_ids_by_xy():
     assert twin.ids == [10, 20, 30]  # x asc, then y asc
 
 
-def test_build_anim_string_shape():
+def test_build_anim_string_shape_basic():
     colours = {1: (10, 20, 30), 5: (1, 2, 3)}
-    # Order matters: supply in the expected device order
     s = _build_anim([1, 5], colours, transition=75)
     parts = list(map(int, s.split()))
     # count + 2 records x 7 ints each = 1 + 14 = 15 parts
@@ -48,6 +46,16 @@ def test_build_anim_string_shape():
     assert parts[1:8] == [1, 1, 10, 20, 30, 0, 75]
     # record 2 (panel 5)
     assert parts[8:15] == [5, 1, 1, 2, 3, 0, 75]
+
+
+def test_build_anim_string_with_brightness():
+    colours = {2: (100, 50, 0)}
+    s = _build_anim([2], colours, transition=10, brightness=50)
+    parts = list(map(int, s.split()))
+    # count
+    assert parts[0] == 1
+    # 100,50,0 scaled by 0.5 -> 50,25,0
+    assert parts[1:8] == [2, 1, 50, 25, 0, 0, 10]
 
 
 @pytest.mark.asyncio
@@ -67,7 +75,6 @@ async def test_sync_default_display_and_values():
     # 3 panels total (we didn't limit to subset)
     assert parts[0] == 3
     # panel 10 frame => 255,0,0
-    # find record for panel id 10:
     idx = parts.index(10)
     assert parts[idx:idx+7] == [10, 1, 255, 0, 0, 0, 50]
     # panel 20 frame => 0,0,255 (clamped)
@@ -76,20 +83,22 @@ async def test_sync_default_display_and_values():
 
 
 @pytest.mark.asyncio
-async def test_sync_subset_display_temp():
+async def test_sync_subset_display_temp_and_brightness():
     nl = DummyLight()
     twin = await DigitalTwin.create(nl)
-    await twin.set_color(10, (1, 2, 3))
-    await twin.set_color(20, (9, 8, 7))
-    # Only push panel 20, and make it temporary
-    await twin.sync(transition_ms=5, command="displayTemp", only=[20])
+    await twin.set_color(10, (10, 10, 10))
+    await twin.set_color(20, (100, 80, 60))
+    # Only push panel 20, temporary, with brightness overlay 50
+    await twin.sync(transition_ms=5, command="displayTemp", only=[20], brightness=50)
 
     assert len(nl.writes) == 1
     payload = nl.writes[0]
     assert payload["command"] == "displayTemp"
     parts = list(map(int, payload["animData"].split()))
-    assert parts[0] == 1  # single record
-    assert parts[1:8] == [20, 1, 9, 8, 7, 0, 5]
+    # subset => 1 record
+    assert parts[0] == 1
+    # record for panel 20 should be scaled: 100,80,60 -> 50,40,30
+    assert parts[1:8] == [20, 1, 50, 40, 30, 0, 5]
 
 
 @pytest.mark.asyncio

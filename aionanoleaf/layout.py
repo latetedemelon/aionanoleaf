@@ -8,14 +8,24 @@ Exposes spec-aligned endpoints around /panelLayout.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 
+@dataclass
 class Panel:
-    """Typing helper for projects that import layout.Panel as a type."""
+    """Runtime panel object with IDs and coordinates.
+
+    Matches code paths that do `Panel(pid, x, y)` and may read `.panelId`
+    (primary) or `.id` (alias property below).
+    """
     panelId: int
     x: int
     y: int
+
+    @property
+    def id(self) -> int:  # compatibility with callers that expect `.id`
+        return self.panelId
 
 
 def _to_int(v: Any) -> Optional[int]:

@@ -5,6 +5,7 @@ Features:
 - Subset updates (only=[...])
 - Optional brightness overlay (0..100)
 - apply_temp(): blink a set of panels then restore previous effect
+- NEW: region helpers (ids_in_box / ids_by_row / ids_by_col)
 """
 
 from __future__ import annotations
@@ -185,6 +186,8 @@ class DigitalTwin:
         self._ids_ordered: Tuple[int, ...] = tuple(p.panel_id for p in panels_sorted)
         self._ids_set = set(self._ids_ordered)
         self.colors: Dict[int, RGB] = {pid: (0, 0, 0) for pid in self._ids_ordered}
+        # NEW: remember positions for region helpers
+        self._pos: Dict[int, Tuple[int, int]] = {p.panel_id: (p.x, p.y) for p in panels_sorted}
 
     @classmethod
     async def create(cls, nl: Any) -> "DigitalTwin":
@@ -224,6 +227,30 @@ class DigitalTwin:
     def get_all_colors(self) -> Dict[int, RGB]:
         """Get a copy of the whole twin colour map."""
         return dict(self.colors)
+
+    # ---------- NEW: Region selection helpers ----------
+
+    def ids_in_box(self, x_min: int, y_min: int, x_max: int, y_max: int) -> List[int]:
+        """IDs whose (x,y) are within the inclusive bounding box."""
+        x0, x1 = (int(min(x_min, x_max)), int(max(x_min, x_max)))
+        y0, y1 = (int(min(y_min, y_max)), int(max(y_min, y_max)))
+        sel = [pid for pid in self._ids_ordered
+               if (x0 <= self._pos[pid][0] <= x1) and (y0 <= self._pos[pid][1] <= y1)]
+        return sel
+
+    def ids_by_row(self, y: int, tolerance: int = 10) -> List[int]:
+        """IDs whose y is within ±tolerance of the given row y."""
+        y = int(y)
+        tol = max(0, int(tolerance))
+        y0, y1 = y - tol, y + tol
+        return [pid for pid in self._ids_ordered if y0 <= self._pos[pid][1] <= y1]
+
+    def ids_by_col(self, x: int, tolerance: int = 10) -> List[int]:
+        """IDs whose x is within ±tolerance of the given column x."""
+        x = int(x)
+        tol = max(0, int(tolerance))
+        x0, x1 = x - tol, x + tol
+        return [pid for pid in self._ids_ordered if x0 <= self._pos[pid][0] <= x1]
 
     # ---------- Editing ----------
 

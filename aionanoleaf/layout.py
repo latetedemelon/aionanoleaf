@@ -1,6 +1,7 @@
 """Layout helpers: panel orientation and positions.
 
 Exposes spec-aligned endpoints around /panelLayout.
+- Panel(...) now accepts either (panelId, x, y) or a single "position" object/dict.
 - get_positions(): list of {panelId, x, y} dicts
 - get_global_orientation(): int (0..360) if available
 - set_global_orientation(angle): PUT {"value": angle}
@@ -8,24 +9,7 @@ Exposes spec-aligned endpoints around /panelLayout.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
-
-
-@dataclass
-class Panel:
-    """Runtime panel object with IDs and coordinates.
-
-    Matches code paths that do `Panel(pid, x, y)` and may read `.panelId`
-    (primary) or `.id` (alias property below).
-    """
-    panelId: int
-    x: int
-    y: int
-
-    @property
-    def id(self) -> int:  # compatibility with callers that expect `.id`
-        return self.panelId
+from typing import Any, Dict, List, Mapping, Optional, overload
 
 
 def _to_int(v: Any) -> Optional[int]:
@@ -40,6 +24,97 @@ def _to_int(v: Any) -> Optional[int]:
         except ValueError:
             return None
     return None
+
+
+class Panel:
+    """Runtime panel object with IDs and coordinates.
+
+    Accepts either:
+      - Panel(panelId: int, x: int, y: int)
+      - Panel(pos: Mapping[str, Any])  # keys: panelId/x/y or id/x_coordinate/y_coordinate
+      - Panel(pos: Any)  # object with attributes panelId/x/y or id/x_coordinate/y_coordinate
+
+    Also exposes `.id` as an alias to `.panelId`.
+    """
+
+    panelId: int
+    x: int
+    y: int
+
+    @overload
+    def __init__(self, panelId: int, x: int, y: int) -> None: ...
+    @overload
+    def __init__(self, pos: Mapping[str, Any]) -> None: ...
+    @overload
+    def __init__(self, pos: Any) -> None: ...
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        if len(args) == 1 and not kwargs:
+            pos = args[0]
+            # Mapping case
+            if isinstance(pos, Mapping):
+                pid = _to_int(pos.get("panelId"))
+                if pid is None:
+                    pid = _to_int(pos.get("id"))
+                x = _to_int(pos.get("x"))
+                if x is None:
+                    x = _to_int(pos.get("x_coordinate"))
+                y = _to_int(pos.get("y"))
+                if y is None:
+                    y = _to_int(pos.get("y_coordinate"))
+            else:
+                # Generic object with attributes
+                pid_attr = getattr(pos, "panelId", None)
+                if pid_attr is None:
+                    pid_attr = getattr(pos, "id", None)
+                x_attr = getattr(pos, "x", None)
+                if x_attr is None:
+                    x_attr = getattr(pos, "x_coordinate", None)
+                y_attr = getattr(pos, "y", None)
+                if y_attr is None:
+                    y_attr = getattr(pos, "y_coordinate", None)
+                pid = _to_int(pid_attr)
+                x = _to_int(x_attr)
+                y = _to_int(y_attr)
+
+            if pid is None or x is None or y is None:
+                raise TypeError("Panel(pos): could not extract panelId/x/y")
+            self.panelId = pid
+            self.x = x
+            self.y = y
+            return
+
+        # Tuple/positional/keyword case
+        if len(args) + len(kwargs) == 3:
+            # Support both positional and keyword usage
+            if args:
+                try:
+                    panel_id, x_val, y_val = args  # type: ignore[misc]
+                except Exception as exc:
+                    raise TypeError("Panel(panelId, x, y) requires three ints") from exc
+            else:
+                try:
+                    panel_id = kwargs["panelId"]
+                    x_val = kwargs["x"]
+                    y_val = kwargs["y"]
+                except KeyError as exc:
+                    raise TypeError("Panel(panelId, x, y) missing keyword") from exc
+
+            pid = _to_int(panel_id)
+            x = _to_int(x_val)
+            y = _to_int(y_val)
+            if pid is None or x is None or y is None:
+                raise TypeError("Panel(panelId, x, y) must be integers")
+            self.panelId = pid
+            self.x = x
+            self.y = y
+            return
+
+        raise TypeError("Panel expects (panelId, x, y) or a single position object/dict")
+
+    @property
+    def id(self) -> int:  # compatibility with callers that expect `.id`
+        return self.panelId
 
 
 class LayoutClient:

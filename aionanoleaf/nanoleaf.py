@@ -18,6 +18,7 @@
 """Nanoleaf."""
 from __future__ import annotations
 
+import re
 import asyncio
 import json
 import logging
@@ -51,6 +52,24 @@ from .exceptions import (
 )
 from .layout import Panel
 from .typing import InfoData
+
+def _format_host_for_url(host: str) -> str:
+    """Return host formatted for http URLs; wrap bare IPv6 literals in [].
+
+    Examples:
+      "192.168.1.5" -> "192.168.1.5"
+      "fe80::1"     -> "[fe80::1]"
+      "[fe80::1]"   -> "[fe80::1]"
+      "example.com" -> "example.com"
+    """
+    h = host.strip()
+    if h.startswith("[") and h.endswith("]"):
+        return h
+    # very loose IPv6 literal check: hex + colons only
+    if ":" in h and re.fullmatch(r"[0-9A-Fa-f:]+", h):
+        return f"[{h}]"
+    return h
+
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -268,3 +268,65 @@ class DigitalTwin:
         payload = {
             "command": command,
             "version": "1.0",
+            "animType": "static",
+            "animData": anim,
+            "palette": [],
+            "loop": False,
+        }
+
+        write_effect = getattr(self._nl, "write_effect", None)
+        if callable(write_effect):
+            result = write_effect(payload)
+            if hasattr(result, "__await__"):
+                await result
+            return
+
+        for name in ("effects_write", "display_effect"):
+            meth = getattr(self._nl, name, None)
+            if callable(meth):
+                result = meth(payload)
+                if hasattr(result, "__await__"):
+                    await result
+                return
+
+        raise RuntimeError(
+            "Nanoleaf client does not expose a write_effect/effects_write/display_effect method."
+        )
+
+    async def apply_temp(
+        self,
+        *,
+        transition_ms: int = 60,
+        duration_ms: int = 2000,
+        only: Optional[Iterable[int]] = None,
+        brightness: Optional[int] = None,
+    ) -> None:
+        """Blink: temporarily apply the twin colours, then restore previous effect."""
+        ef = EffectsClient(self._nl)
+
+        prev = None
+        try:
+            prev = await ef.get_selected_effect()
+        except Exception:
+            prev = None  # best-effort
+
+        try:
+            await self.sync(
+                transition_ms=transition_ms,
+                command="displayTemp",
+                only=only,
+                brightness=brightness,
+            )
+            await self._sleep_ms(max(0, int(duration_ms)))
+        finally:
+            if prev:
+                try:
+                    await ef.select_effect(prev)
+                except Exception:
+                    pass  # best-effort restoration
+
+    @staticmethod
+    async def _sleep_ms(ms: int) -> None:
+        """Await sleep for ms milliseconds (tiny wrapper for testing)."""
+        import asyncio  # local import keeps module imports minimal
+        await asyncio.sleep(ms / 1000.0)

@@ -9,6 +9,8 @@ Features:
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Tuple, Optional
 
@@ -304,11 +306,10 @@ class DigitalTwin:
         """Blink: temporarily apply the twin colours, then restore previous effect."""
         ef = EffectsClient(self._nl)
 
-        prev = None
-        try:
+        prev: Optional[str] = None
+        # Best-effort read of selected effect; ignore failures without a broad-except block.
+        with suppress(Exception):
             prev = await ef.get_selected_effect()
-        except Exception:
-            prev = None  # best-effort
 
         try:
             await self.sync(
@@ -320,13 +321,11 @@ class DigitalTwin:
             await self._sleep_ms(max(0, int(duration_ms)))
         finally:
             if prev:
-                try:
+                # Best-effort restore; ignore failures.
+                with suppress(Exception):
                     await ef.select_effect(prev)
-                except Exception:
-                    pass  # best-effort restoration
 
     @staticmethod
     async def _sleep_ms(ms: int) -> None:
         """Await sleep for ms milliseconds (tiny wrapper for testing)."""
-        import asyncio  # local import keeps module imports minimal
         await asyncio.sleep(ms / 1000.0)

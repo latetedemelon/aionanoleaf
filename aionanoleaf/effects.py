@@ -44,7 +44,7 @@ class EffectsClient:
         await self._nl._put_json("/effects", body)  # type: ignore[attr-defined]
 
     # Convenience aliases (optional)
-    async def write_custom_effect(
+    async def write_custom_effect(  # pylint: disable=too-many-arguments
         self,
         anim_name: str,
         anim_data: str,
@@ -52,7 +52,7 @@ class EffectsClient:
         color_type: str = "HSB",
         loop: bool = False,
         palette: Sequence[Mapping[str, Any]] | None = None,
-    ) -> None:  # pylint: disable=too-many-arguments
+    ) -> None:
         """Add/replace a custom effect and select it immediately."""
         payload: dict[str, Any] = {
             "command": "add",

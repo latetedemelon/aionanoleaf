@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Tuple, Optional
 
-from aionanoleaf.effects import EffectsClient  # top-level import (no C0415)
+from aionanoleaf.effects import EffectsClient  # top-level import
 
 RGB = Tuple[int, int, int]
 __all__ = ["DigitalTwin", "_build_anim"]
@@ -54,7 +54,7 @@ def _apply_brightness(rgb: RGB, brightness: Optional[int]) -> RGB:
     """Apply optional brightness overlay (0..100) to RGB."""
     if brightness is None:
         return rgb
-    if not 0 <= int(brightness) <= 100:  # no superfluous parens
+    if not 0 <= int(brightness) <= 100:
         raise ValueError("brightness must be between 0 and 100")
     if brightness == 100:
         return rgb
@@ -124,165 +124,4 @@ class DigitalTwin:
 
         if pos is None:
             info = getattr(nl, "info", None) or getattr(nl, "_info", None)
-            if isinstance(info, dict):
-                # Be liberal with missing keys across firmwares
-                try:
-                    pos = (
-                        info.get("panelLayout", {})
-                        .get("layout", {})
-                        .get("positionData", None)
-                    )
-                except (AttributeError, KeyError, TypeError):
-                    pos = None
-
-        if isinstance(pos, list) and pos:
-            for p in pos:
-                pid = p.get("panelId")
-                x = p.get("x")
-                y = p.get("y")
-                if pid is not None and x is not None and y is not None:
-                    panels.append(_Panel(int(pid), int(x), int(y)))
-
-        if not panels:
-            candidates = getattr(nl, "panels", None) or getattr(nl, "_panels", None)
-            if isinstance(candidates, (list, tuple)) and candidates:
-                for obj in candidates:
-                    pid = getattr(obj, "panelId", None) or getattr(obj, "id", None)
-                    x = getattr(obj, "x", None) or getattr(obj, "x_coordinate", None)
-                    y = getattr(obj, "y", None) or getattr(obj, "y_coordinate", None)
-                    if pid is not None and x is not None and y is not None:
-                        panels.append(_Panel(int(pid), int(x), int(y)))
-
-        if not panels:
-            raise RuntimeError(
-                "Panel layout not found; per-panel control requires a panel device. "
-                "If this is an Essentials bulb/strip, use whole-device colour/state APIs."
-            )
-
-        return cls(nl, panels)
-
-    # ---------- Introspection ----------
-
-    @property
-    def ids(self) -> List[int]:
-        """List of panel IDs in deterministic (x,y,id) order."""
-        return list(self._ids_ordered)
-
-    def get_color(self, panel_id: int) -> RGB:
-        """Get the current RGB assigned to a panel in the twin."""
-        return self.colors[int(panel_id)]
-
-    def get_all_colors(self) -> Dict[int, RGB]:
-        """Get a copy of the whole twin colour map."""
-        return dict(self.colors)
-
-    # ---------- Editing ----------
-
-    async def set_color(self, panel_id: int, rgb: RGB) -> None:
-        """Set RGB for a single panel ID."""
-        panel_id = int(panel_id)
-        if panel_id not in self._ids_set:
-            raise ValueError(f"panel id unknown: {panel_id}")
-        self.colors[panel_id] = _validate_rgb(rgb)
-
-    async def set_hex(self, panel_id: int, hex_colour: str) -> None:
-        """Set RGB for a single panel using a #RRGGBB string."""
-        await self.set_color(panel_id, _hex_to_rgb(hex_colour))
-
-    async def set_all_colors(self, rgb: RGB) -> None:
-        """Set RGB for all panels."""
-        rgb = _validate_rgb(rgb)
-        for panel_id in self._ids_ordered:
-            self.colors[panel_id] = rgb
-
-    # ---------- Rendering ----------
-
-    async def sync(
-        self,
-        *,
-        transition_ms: int = 10,
-        command: str = "display",
-        only: Optional[Iterable[int]] = None,
-        brightness: Optional[int] = None,
-    ) -> None:
-        """Apply current colours as a static scene via /effects write."""
-        if command not in ("display", "displayTemp"):
-            raise ValueError('command must be "display" or "displayTemp"')
-
-        if only is None:
-            ids: Iterable[int] = self._ids_ordered
-        else:
-            only_set = set(int(x) for x in only)
-            unknown = only_set - self._ids_set
-            if unknown:
-                raise ValueError(f"unknown panel ids: {sorted(unknown)}")
-            ids = tuple(pid for pid in self._ids_ordered if pid in only_set)
-
-        anim = _build_anim(ids, self.colors, transition_ms, brightness=brightness)
-        payload = {
-            "command": command,
-            "version": "1.0",
-            "animType": "static",
-            "animData": anim,
-            "palette": [],
-            "loop": False,
-        }
-
-        write_effect = getattr(self._nl, "write_effect", None)
-        if callable(write_effect):
-            result = write_effect(payload)
-            if hasattr(result, "__await__"):
-                await result
-            return
-
-        for name in ("effects_write", "display_effect"):
-            meth = getattr(self._nl, name, None)
-            if callable(meth):
-                result = meth(payload)
-                if hasattr(result, "__await__"):
-                    await result
-                return
-
-        raise RuntimeError(
-            "Nanoleaf client does not expose a write_effect/effects_write/display_effect method."
-        )
-
-    async def apply_temp(
-        self,
-        *,
-        transition_ms: int = 60,
-        duration_ms: int = 2000,
-        only: Optional[Iterable[int]] = None,
-        brightness: Optional[int] = None,
-    ) -> None:
-        """Blink: temporarily apply the twin colours, then restore previous effect."""
-        ef = EffectsClient(self._nl)
-
-        prev = None
-        try:
-            prev = await ef.get_selected_effect()
-        except Exception:  # best-effort restore if readable
-            prev = None
-
-        try:
-            await self.sync(
-                transition_ms=transition_ms,
-                command="displayTemp",
-                only=only,
-                brightness=brightness,
-            )
-            # Sleep non-negative duration
-            await self._sleep_ms(max(0, int(duration_ms)))
-        finally:
-            if prev:
-                try:
-                    await ef.select_effect(prev)
-                except Exception:
-                    # Restoration is best-effort; ignore on failure.
-                    pass
-
-    @staticmethod
-    async def _sleep_ms(ms: int) -> None:
-        """Await sleep for ms milliseconds (tiny wrapper for testing)."""
-        import asyncio  # local import keeps module imports minimal
-        await asyncio.sleep(ms / 1000.0)
+            if isin

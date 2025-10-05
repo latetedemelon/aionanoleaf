@@ -58,10 +58,8 @@ def _build_anim(
     brightness: Optional[int] = None,
 ) -> str:
     """
-    Build Nanoleaf 'static' effect animData string.
-
-    Format:
-        <count> [panelId 1] 1 R G B 0 <transition_ms> ... (repeated for N panels)
+    Build Nanoleaf 'static' effect animData string:
+      <count> [panelId] 1 R G B 0 <transition_ms> ...
     """
     id_list = list(ids)
     records: List[int] = []
@@ -83,22 +81,15 @@ class _Panel:
 
 class DigitalTwin:
     """
-    A lightweight 'digital twin' for Nanoleaf panel devices.
-
-    - Collect per-panel RGB colours locally (by panelId)
-    - Push them atomically as a single static effect over REST (no UDP)
-    - Supports persistent ('display') or temporary ('displayTemp') application
-    - Can target a subset of panels for small updates
-    - Optional brightness overlay (0..100) scales the encoded RGB
-
-    Not supported on Essentials bulbs/strips (no per-panel layout).
+    Per-panel static colour control over REST (no UDP).
+    - Persistent or temporary application (display/displayTemp)
+    - Subset updates (only=[...])
+    - Optional brightness overlay 0..100
+    - New: apply_temp() to blink and restore previous effect
     """
-
-    # -------------------------- construction --------------------------
 
     def __init__(self, nl: Any, panels: List[_Panel]) -> None:
         self._nl = nl
-        # Sort deterministic: left-to-right (x asc), then top-to-bottom (y asc)
         panels_sorted = sorted(panels, key=lambda p: (p.x, p.y, p.id))
         self._ids_ordered: Tuple[int, ...] = tuple(p.id for p in panels_sorted)
         self._ids_set = set(self._ids_ordered)
@@ -106,15 +97,7 @@ class DigitalTwin:
 
     @classmethod
     async def create(cls, nl: Any) -> "DigitalTwin":
-        """
-        Factory that fetches layout/positions from the device and returns a twin.
-
-        Tries multiple shapes so it works across forks:
-          - await nl.get_panel_layout() → {"positionData":[{"panelId","x","y",...},...]}
-          - nl.info / nl._info dictionaries with ["panelLayout"]["layout"]["positionData"]
-          - nl.panels / nl._panels list of objects with id/x/y (or x_coordinate/y_coordinate)
-        """
-        # Ensure device info/layout is loaded if the client requires it
+        # Ensure device info/layout loaded if client requires it
         get_info = getattr(nl, "get_info", None)
         if callable(get_info):
             res = get_info()
@@ -130,11 +113,9 @@ class DigitalTwin:
         panels: List[_Panel] = []
         pos = None
 
-        # Dict-style layout
         if isinstance(layout, dict):
             pos = layout.get("positionData")
 
-        # Try info dicts
         if pos is None:
             info = getattr(nl, "info", None) or getattr(nl, "_info", None)
             if isinstance(info, dict):
@@ -155,7 +136,6 @@ class DigitalTwin:
                 if pid is not None and x is not None and y is not None:
                     panels.append(_Panel(pid, x, y))
 
-        # Try object-style panels if still empty
         if not panels:
             candidates = getattr(nl, "panels", None) or getattr(nl, "_panels", None)
             if isinstance(candidates, (list, tuple)) and candidates:
@@ -169,17 +149,15 @@ class DigitalTwin:
         if not panels:
             raise RuntimeError(
                 "Panel layout not found; per-panel control requires a panel device. "
-                "Check that this device is not an Essentials bulb/strip and that "
-                "your client exposes /panelLayout/layout or panel coordinates."
+                "If this is an Essentials bulb/strip, use whole-device colour/state APIs."
             )
 
         return cls(nl, panels)
 
-    # -------------------------- introspection --------------------------
+    # -------- introspection --------
 
     @property
     def ids(self) -> List[int]:
-        """List of panel IDs in deterministic (x,y,id) order."""
         return list(self._ids_ordered)
 
     def get_color(self, panel_id: int) -> RGB:
@@ -188,26 +166,23 @@ class DigitalTwin:
     def get_all_colors(self) -> Dict[int, RGB]:
         return dict(self.colors)
 
-    # -------------------------- editing --------------------------
+    # -------- editing --------
 
     async def set_color(self, pid: int, rgb: RGB) -> None:
-        """Set RGB for a single panel ID."""
         pid = int(pid)
         if pid not in self._ids_set:
             raise ValueError(f"panel id unknown: {pid}")
         self.colors[pid] = _validate_rgb(rgb)
 
     async def set_hex(self, pid: int, hex_colour: str) -> None:
-        """Set RGB for a single panel using a #RRGGBB hex string."""
         await self.set_color(pid, _hex_to_rgb(hex_colour))
 
     async def set_all_colors(self, rgb: RGB) -> None:
-        """Set RGB for all panels."""
         rgb = _validate_rgb(rgb)
         for pid in self._ids_ordered:
             self.colors[pid] = rgb
 
-    # -------------------------- rendering --------------------------
+    # -------- rendering --------
 
     async def sync(
         self,
@@ -218,13 +193,13 @@ class DigitalTwin:
         brightness: Optional[int] = None,
     ) -> None:
         """
-        Push the current colour map as a single static effect over REST.
+        Apply current colours as a static scene.
 
         Args:
-            transition_ms: Per-panel transition time (ms).
-            command: "display" (persistent) or "displayTemp" (ephemeral).
-            only: Optional subset of panel IDs to include; others are left untouched.
-            brightness: Optional 0..100 brightness overlay applied to each panel's RGB.
+          transition_ms: per-panel transition (ms)
+          command: "display" (persistent) or "displayTemp" (ephemeral)
+          only: subset of panel IDs
+          brightness: optional 0..100 scale applied to RGB
         """
         if command not in ("display", "displayTemp"):
             raise ValueError('command must be "display" or "displayTemp"')
@@ -236,7 +211,6 @@ class DigitalTwin:
             unknown = only_set - self._ids_set
             if unknown:
                 raise ValueError(f"unknown panel ids: {sorted(unknown)}")
-            # preserve layout order
             ids = tuple(pid for pid in self._ids_ordered if pid in only_set)
 
         anim = _build_anim(ids, self.colors, transition_ms, brightness=brightness)
@@ -249,7 +223,6 @@ class DigitalTwin:
             "loop": False,
         }
 
-        # Use the library's canonical write helper if present
         write_effect = getattr(self._nl, "write_effect", None)
         if callable(write_effect):
             res = write_effect(payload)
@@ -257,7 +230,6 @@ class DigitalTwin:
                 await res
             return
 
-        # Fallback: call other common names or raise
         for name in ("effects_write", "display_effect"):
             meth = getattr(self._nl, name, None)
             if callable(meth):
@@ -269,3 +241,50 @@ class DigitalTwin:
         raise RuntimeError(
             "Nanoleaf client does not expose a write_effect/effects_write/display_effect method."
         )
+
+    async def apply_temp(
+        self,
+        *,
+        transition_ms: int = 60,
+        duration_ms: int = 2000,
+        only: Optional[Iterable[int]] = None,
+        brightness: Optional[int] = None,
+    ) -> None:
+        """
+        Blink: temporarily apply the current twin colours, then restore prior effect.
+
+        Steps:
+          1) Remember the currently selected effect
+          2) displayTemp the static scene built from twin colours
+          3) sleep 'duration_ms'
+          4) re-select the previous effect (best effort)
+        """
+        # Lazy import to avoid hard dependency at import-time
+        from aionanoleaf.effects import EffectsClient, UnauthorizedError  # type: ignore
+
+        ef = EffectsClient(self._nl)
+        prev = None
+        try:
+            prev = await ef.get_selected_effect()
+        except Exception:
+            # If we can't read it, still try to apply temp; restoration may be skipped.
+            prev = None
+
+        try:
+            await self.sync(
+                transition_ms=transition_ms,
+                command="displayTemp",
+                only=only,
+                brightness=brightness,
+            )
+            await asyncio.sleep(max(0, int(duration_ms)) / 1000.0)
+        finally:
+            if prev:
+                try:
+                    await ef.select_effect(prev)
+                except UnauthorizedError:
+                    # pairing lost; nothing else to do
+                    pass
+                except Exception:
+                    # best effort; swallow to avoid crashing caller
+                    pass

@@ -53,6 +53,7 @@ from .exceptions import (
 from .layout import Panel
 from .typing import InfoData
 
+
 def _format_host_for_url(host: str) -> str:
     """Return host formatted for http URLs; wrap bare IPv6 literals in [].
 

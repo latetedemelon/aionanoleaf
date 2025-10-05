@@ -38,10 +38,24 @@ def _hex_to_rgb(s: str) -> RGB:
     return r, g, b
 
 
+def _apply_brightness(rgb: RGB, brightness: Optional[int]) -> RGB:
+    if brightness is None:
+        return rgb
+    if not (0 <= int(brightness) <= 100):
+        raise ValueError("brightness must be between 0 and 100")
+    if brightness == 100:
+        return rgb
+    scale = brightness / 100.0
+    r, g, b = rgb
+    return (_clamp(round(r * scale)), _clamp(round(g * scale)), _clamp(round(b * scale)))
+
+
 def _build_anim(
     ids: Iterable[int],
     colours: Dict[int, RGB],
     transition: int = 10,
+    *,
+    brightness: Optional[int] = None,
 ) -> str:
     """
     Build Nanoleaf 'static' effect animData string.
@@ -51,9 +65,10 @@ def _build_anim(
     """
     id_list = list(ids)
     records: List[int] = []
+    t = int(max(0, transition))
     for pid in id_list:
-        r, g, b = colours[pid]
-        records += [pid, 1, int(r), int(g), int(b), 0, int(max(0, transition))]
+        r, g, b = _apply_brightness(colours[pid], brightness)
+        records += [int(pid), 1, int(r), int(g), int(b), 0, t]
     return " ".join(map(str, [len(id_list)] + records))
 
 
@@ -74,6 +89,7 @@ class DigitalTwin:
     - Push them atomically as a single static effect over REST (no UDP)
     - Supports persistent ('display') or temporary ('displayTemp') application
     - Can target a subset of panels for small updates
+    - Optional brightness overlay (0..100) scales the encoded RGB
 
     Not supported on Essentials bulbs/strips (no per-panel layout).
     """
@@ -199,6 +215,7 @@ class DigitalTwin:
         transition_ms: int = 10,
         command: str = "display",
         only: Optional[Iterable[int]] = None,
+        brightness: Optional[int] = None,
     ) -> None:
         """
         Push the current colour map as a single static effect over REST.
@@ -207,6 +224,7 @@ class DigitalTwin:
             transition_ms: Per-panel transition time (ms).
             command: "display" (persistent) or "displayTemp" (ephemeral).
             only: Optional subset of panel IDs to include; others are left untouched.
+            brightness: Optional 0..100 brightness overlay applied to each panel's RGB.
         """
         if command not in ("display", "displayTemp"):
             raise ValueError('command must be "display" or "displayTemp"')
@@ -221,7 +239,7 @@ class DigitalTwin:
             # preserve layout order
             ids = tuple(pid for pid in self._ids_ordered if pid in only_set)
 
-        anim = _build_anim(ids, self.colors, transition_ms)
+        anim = _build_anim(ids, self.colors, transition_ms, brightness=brightness)
         payload = {
             "command": command,
             "version": "1.0",

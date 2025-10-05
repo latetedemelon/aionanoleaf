@@ -5,16 +5,20 @@ except Exception:  # pragma: no cover
     ClientSession = object  # type: ignore
 
 from asyncio import run
+from typing import Any, Dict
 from aionanoleaf import Nanoleaf
 from aionanoleaf.rhythm import RhythmClient
 
 HOST = "192.168.0.50"
-TOKEN = None
+TOKEN = None  # set if your fork requires explicit token
 
 
 async def make_client(session: ClientSession) -> Nanoleaf:
+    kwargs: Dict[str, Any] = {}
+    if TOKEN is not None:
+        kwargs["token"] = TOKEN
     try:
-        return Nanoleaf(session, HOST, token=TOKEN)  # type: ignore[arg-type]
+        return Nanoleaf(session, HOST, **kwargs)  # type: ignore[call-arg]
     except TypeError:
         return Nanoleaf(session, HOST)  # type: ignore[call-arg]
 

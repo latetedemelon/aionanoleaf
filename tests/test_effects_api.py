@@ -1,3 +1,4 @@
+# tests/test_effects_api.py
 """Unit tests for EffectsClient (no real HTTP)."""
 
 try:
@@ -41,6 +42,6 @@ async def test_effects_list_and_select_ok():
     await cli.write_custom_effect("X", "0")
     await cli.display_temp_static("0")
 
-    # Ensure the right endpoints were called
+    # Ensure the right endpoint was called
     assert nl.put_calls[0][0] == "/effects"
     assert "select" in nl.put_calls[0][1] or "write" in nl.put_calls[0][1]

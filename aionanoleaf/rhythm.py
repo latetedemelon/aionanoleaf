@@ -11,7 +11,7 @@ helpers for common keys. set_mode() accepts int or 'microphone'/'aux'.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 
 _MODE_MAP = {
@@ -52,12 +52,18 @@ class RhythmClient:
         """Return /rhythm.rhythmMode as int if present."""
         info = await self.get_info()
         val = info.get("rhythmMode")
-        try:
-            return int(val)  # type: ignore[arg-type]
-        except Exception:
-            return None
+        if isinstance(val, bool):  # bool is a subclass of int, but be explicit
+            return int(val)
+        if isinstance(val, int):
+            return val
+        if isinstance(val, str):
+            try:
+                return int(val)
+            except ValueError:
+                return None
+        return None
 
-    async def set_mode(self, mode: int | str) -> None:
+    async def set_mode(self, mode: Union[int, str]) -> None:
         """PUT /rhythm with {'rhythmMode': <int>}.
 
         Accepts: 0/1 or 'microphone'/'mic'/'aux'.
@@ -71,6 +77,6 @@ class RhythmClient:
             mode_int = int(mode)
             if mode_int not in (0, 1):
                 raise ValueError("mode must be 0 or 1")
-        payload = {"rhythmMode": mode_int}
+        payload: Dict[str, int] = {"rhythmMode": mode_int}
         # pylint: disable=protected-access
         await self._nl._put_json("/rhythm", payload)  # type: ignore[attr-defined]

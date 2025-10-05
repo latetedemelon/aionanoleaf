@@ -1,45 +1,34 @@
-# examples/effects_roundtrip_demo.py
-"""
-List current effects, show the selected one, select a different one,
-and write a trivial static effect.
+"""List effects, select one, push a trivial static scene write."""
 
-Adapt the Nanoleaf(...) constructor to your fork (session+host [+token]).
-"""
+try:
+    from aiohttp import ClientSession  # type: ignore
+except Exception:  # pragma: no cover
+    ClientSession = object  # type: ignore
 
-import asyncio
-from aiohttp import ClientSession
+from asyncio import run
 from aionanoleaf import Nanoleaf
 from aionanoleaf.effects import EffectsClient
 
-HOST = "192.168.0.50"   # set me
-TOKEN = None            # set if your fork requires explicit token
-
-
-async def make_client(session: ClientSession) -> Nanoleaf:
-    try:
-        return Nanoleaf(session, HOST, token=TOKEN)  # type: ignore[arg-type]
-    except TypeError:
-        return Nanoleaf(session, HOST)
+HOST = "192.168.0.50"  # set me
 
 
 async def main():
-    async with ClientSession() as session:
-        nl = await make_client(session)
+    """Run the demo."""
+    async with ClientSession() as session:  # type: ignore[operator]
+        nl = Nanoleaf(session, HOST)  # type: ignore[call-arg]
         ef = EffectsClient(nl)
 
-        lst = await ef.get_effects_list()
-        cur = await ef.get_selected_effect()
-        print("Available:", lst)
-        print("Selected :", cur)
+        effects = await ef.get_effects_list()
+        current = await ef.get_selected_effect()
+        print("Available:", effects)
+        print("Selected :", current)
 
-        if lst:
-            target = lst[0]
-            print("Selecting:", target)
-            await ef.select_effect(target)
+        if effects:
+            await ef.select_effect(effects[0])
 
-        # Push a trivial (empty) static scene write (no panels)
+        # Push an empty static scene (no panels) just to exercise the write path
         await ef.write_effect({"command": "display", "animType": "static", "animData": "0"})
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    run(main())

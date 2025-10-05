@@ -50,18 +50,19 @@ async def main() -> None:
 
         a, b = ids[0], ids[1]
 
-        # Paint two panels with different colours
+        # Paint two panels with different colours (hex helper)
         await twin.set_hex(a, "#FF4000")   # orange-red
         await twin.set_hex(b, "#0064FF")   # azure-ish
 
-        # Apply the change as a temporary override (displayTemp)
+        # Apply the change as a temporary override (displayTemp), scaled to 70% brightness
         await twin.sync(
             transition_ms=80,
             command="displayTemp",  # use "display" to persist
             only=[a, b],            # just update these two
+            brightness=70,          # optional brightness overlay (0..100)
         )
 
-        print(f"Applied temporary colours to panels {a} and {b}.")
+        print(f"Applied temporary colours to panels {a} and {b} at 70% brightness.")
 
 
 if __name__ == "__main__":

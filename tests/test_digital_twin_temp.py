@@ -17,74 +17,13 @@ class DummyPanel:
         self.y = y
 
 
-class _Resp:
-    def __init__(self, status, payload):
-        self.status = status
-        self._payload = payload
-
-    async def json(self):
-        return self._payload
-
-    async def text(self):
-        return str(self._payload)
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        return False
-
-
-class _Sess:
-    def __init__(self):
-        self._select = "Snowfall"
-
-    # Minimal context-manager API used by EffectsClient in the real client
-    def get(self, _url):
-        async def _do():
-            return _Resp(200, self._select)
-        return _Ctx(_do)
-
-    def put(self, _url, json=None):
-        async def _do():
-            if isinstance(json, dict) and "select" in json:
-                self._select = str(json["select"])
-            return _Resp(200, {"ok": True})
-        return _Ctx(_do)
-
-
-class _Ctx:
-    def __init__(self, fn):
-        self.fn = fn
-
-    def __call__(self, *a, **k):
-        return _CM(self.fn, *a, **k)
-
-
-class _CM:
-    def __init__(self, fn, *a, **k):
-        self.fn = fn
-        self.args = a
-        self.kw = k
-
-    async def __aenter__(self):
-        return await self.fn(*self.args, **self.kw)
-
-    async def __aexit__(self, exc_type, exc, tb):
-        return False
-
-
-class DummyEffects:
-    def __init__(self):
-        self.session = _Sess()
-        self.base_url = "http://127.0.0.1:16021/api/v1/TOKEN"
-
-
 class DummyLight:
-    def __init__(self, effects):
+    """Stub client that supports panel layout, write_effect, and EffectsClient calls."""
+
+    def __init__(self):
         self.panels = [DummyPanel(10, 0, 0), DummyPanel(20, 1, 0)]
         self._writes = []
-        self._effects = effects
+        self._selected_effect = "Snowfall"
 
     async def get_info(self):
         return {"ok": True}
@@ -92,21 +31,22 @@ class DummyLight:
     async def write_effect(self, payload):
         self._writes.append(payload)
 
-    # EffectsClient will read these from the real Nanoleaf client;
-    # in tests our EffectsClient variant calls _get_json/_put_json, so we don't use them.
-    @property
-    def session(self):
-        return self._effects.session
+    # EffectsClient (used by DigitalTwin.apply_temp) calls these:
+    async def _get_json(self, path: str):
+        if path == "/effects/select":
+            return self._selected_effect
+        raise KeyError(path)
 
-    @property
-    def base_url(self):
-        return self._effects.base_url
+    async def _put_json(self, path: str, body):
+        if path == "/effects" and isinstance(body, dict) and "select" in body:
+            self._selected_effect = str(body["select"])
+            return {"ok": True}
+        return {"ok": True}
 
 
 @pytest.mark.asyncio
 async def test_apply_temp_restores_effect(monkeypatch):
-    effects = DummyEffects()
-    nl = DummyLight(effects)
+    nl = DummyLight()
     twin = await DigitalTwin.create(nl)
 
     # Program a blink colour on one panel
@@ -122,3 +62,6 @@ async def test_apply_temp_restores_effect(monkeypatch):
 
     # A temp write should have been issued
     assert any(p["command"] == "displayTemp" for p in nl._writes)
+
+    # The previous effect should be restored
+    assert nl._selected_effect == "Snowfall"

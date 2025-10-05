@@ -1,111 +1,81 @@
-# aionanoleaf/effects.py
+"""
+Helpers for Nanoleaf Effects endpoints.
+
+Covers:
+- GET /effects/effectsList           -> list_effects()
+- PUT /effects { "select": name }    -> select_effect()
+- PUT /effects { "write": { ... } }  -> write_custom_effect()
+- PUT /effects { "write": { "command": "displayTemp", ... } } -> display_temp_static()
+
+These map to the public OpenAPI shapes as documented by Nanoleaf / community references.
+"""
+
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Dict, List, Mapping, Optional
-
-
-class APIError(RuntimeError):
-    """Generic API error for Nanoleaf /effects calls."""
-
-
-class UnauthorizedError(APIError):
-    """401/403; pairing/token invalid or revoked."""
-
-
-class UnavailableError(APIError):
-    """Network errors or device offline."""
-
-
-def _bracket_ipv6(host: str) -> str:
-    """Wrap IPv6 literals in [] so URLs are valid."""
-    if ":" in host and not host.startswith("["):
-        return f"[{host}]"
-    return host
+from typing import Any, Mapping, Sequence
 
 
 class EffectsClient:
-    """
-    Spec-aligned helpers for the Nanoleaf Effects API.
+    """High-level client bound to a Nanoleaf transport."""
 
-    This class avoids editing the core Nanoleaf client. It discovers a working
-    session + base URL from a provided Nanoleaf-like object and performs:
-      - GET /effects/effectsList
-      - GET /effects/select
-      - PUT /effects  (with {"select": ...} or {"write": {...}})
-    """
-
-    def __init__(self, nl: Any):
+    def __init__(self, nl: "Nanoleaf") -> None:
+        # `Nanoleaf` is the main client providing _get_json/_put_json
         self._nl = nl
-        self._session = getattr(nl, "session", None) or getattr(nl, "_session", None)
-        if self._session is None:
-            raise APIError(
-                "Nanoleaf client has no aiohttp session (.session or ._session)."
-            )
-        base = getattr(nl, "base_url", None) or getattr(nl, "url", None)
-        if not base:
-            host = getattr(nl, "host", None) or getattr(nl, "ip", None)
-            token = getattr(nl, "token", None) or getattr(nl, "auth_token", None)
-            if not host or not token:
-                raise APIError(
-                    "Cannot derive base URL; need .base_url/.url or (host/ip + token)."
-                )
-            base = f"http://{_bracket_ipv6(str(host))}:16021/api/v1/{token}"
-        self._base = str(base).rstrip("/")
 
-    # -------------------- public API --------------------
-
-    async def get_effects_list(self) -> List[str]:
-        data = await self._get_json("/effects/effectsList")
-        # spec: returns array of names
-        if isinstance(data, list) and all(isinstance(x, str) for x in data):
-            return data
-        raise APIError(f"Unexpected effectsList payload: {data!r}")
-
-    async def get_selected_effect(self) -> str:
-        data = await self._get_json("/effects/select")
-        # spec: returns string effect name
-        if isinstance(data, str):
-            return data
-        # some firmwares return {"select": "<name>"} — be liberal
-        if isinstance(data, dict) and isinstance(data.get("select"), str):
-            return data["select"]
-        raise APIError(f"Unexpected select payload: {data!r}")
+    async def list_effects(self) -> list[str]:
+        """Return the list of available effect names."""
+        data = await self._nl._get_json("/effects/effectsList")
+        # API returns a JSON array of strings
+        return list(data) if isinstance(data, Sequence) else []
 
     async def select_effect(self, name: str) -> None:
-        await self._put_json("/effects", {"select": str(name)})
+        """Select an existing effect by name."""
+        await self._nl._put_json("/effects", {"select": name})
 
-    async def write_effect(self, write_dict: Mapping[str, object]) -> None:
-        await self._put_json("/effects", {"write": dict(write_dict)})
+    async def write_custom_effect(
+        self,
+        anim_name: str,
+        anim_data: str,
+        *,
+        color_type: str = "HSB",
+        loop: bool = False,
+        palette: Sequence[Mapping[str, Any]] | None = None,
+    ) -> None:
+        """
+        Upload (add/replace) a custom effect and select it.
 
-    # -------------------- internals --------------------
+        `anim_data` must be a valid Nanoleaf animData string. `palette` can be empty for static scenes.
+        """
+        payload: dict[str, Any] = {
+            "write": {
+                "command": "add",
+                "animName": anim_name,
+                "animType": "custom",
+                "colorType": color_type,
+                "loop": loop,
+                "animData": anim_data,
+                "palette": list(palette) if palette else [],
+            }
+        }
+        await self._nl._put_json("/effects", payload)
 
-    async def _get_json(self, path: str) -> Any:
-        try:
-            async with self._session.get(self._base + path) as resp:
-                txt = await resp.text()
-                if resp.status == 401 or resp.status == 403:
-                    raise UnauthorizedError(f"{resp.status}: {txt}")
-                if resp.status >= 400:
-                    raise APIError(f"GET {path} -> {resp.status}: {txt}")
-                return await resp.json()
-        except UnauthorizedError:
-            raise
-        except Exception as e:  # network, decode, etc.
-            raise UnavailableError(str(e)) from e
+    async def display_temp_static(
+        self,
+        anim_data: str,
+        *,
+        color_type: str = "HSB",
+    ) -> None:
+        """
+        Temporarily display an effect without saving it (useful for Digital Twin previews).
 
-    async def _put_json(self, path: str, body: Mapping[str, object]) -> None:
-        try:
-            async with self._session.put(self._base + path, json=body) as resp:
-                txt = await resp.text()
-                if resp.status == 401 or resp.status == 403:
-                    raise UnauthorizedError(f"{resp.status}: {txt}")
-                if resp.status >= 400:
-                    # include a snippet of the body for debugging bad writes
-                    raise APIError(
-                        f"PUT {path} -> {resp.status}: {txt} | body_keys={list(body.keys())}"
-                    )
-        except UnauthorizedError:
-            raise
-        except Exception as e:
-            raise UnavailableError(str(e)) from e
+        Uses the documented `displayTemp` command with `animType=custom`.
+        """
+        payload = {
+            "write": {
+                "command": "displayTemp",
+                "animType": "custom",
+                "colorType": color_type,
+                "animData": anim_data,
+            }
+        }
+        await self._nl._put_json("/effects", payload)

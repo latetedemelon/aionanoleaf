@@ -1,7 +1,8 @@
+# pylint: disable=invalid-name
 """Layout helpers: panel orientation and positions.
 
 Exposes spec-aligned endpoints around /panelLayout.
-- Panel(...) now accepts either (panelId, x, y) or a single "position" object/dict.
+- Panel(...) accepts either (panelId, x, y) or a single "position" object/dict.
 - get_positions(): list of {panelId, x, y} dicts
 - get_global_orientation(): int (0..360) if available
 - set_global_orientation(angle): PUT {"value": angle}

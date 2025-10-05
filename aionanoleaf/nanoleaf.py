@@ -73,6 +73,7 @@ class Nanoleaf:
         self._host = host
         self._auth_token = auth_token
         self._port = port
+        # honour the retries argument rather than always forcing three attempts
         self._retries = retries
 
     @property

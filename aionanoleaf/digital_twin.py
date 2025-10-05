@@ -26,14 +26,15 @@ def _clamp(value: int, lo: int = 0, hi: int = 255) -> int:
 
 
 def _validate_rgb(rgb: RGB) -> RGB:
-    """Validate and clamp an (R,G,B) 0..255 tuple."""
+    """Parse and clamp an (R,G,B) tuple to the valid 0..255 range.
+
+    Note: This function *does not* error on out-of-range values; it clamps them.
+    This matches test expectations, e.g. (0, 0, 300) → (0, 0, 255).
+    """
     try:
         r, g, b = (int(rgb[0]), int(rgb[1]), int(rgb[2]))
     except Exception as exc:  # noqa: BLE001 (defensive parse)
         raise ValueError("rgb must be a 3-tuple of integers") from exc
-    for v in (r, g, b):
-        if v < 0 or v > 255:
-            raise ValueError("rgb components must be in [0,255]")
     return _clamp(r), _clamp(g), _clamp(b)
 
 

@@ -23,7 +23,7 @@ import asyncio
 import json
 import logging
 import socket
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from aiohttp import (
     ClientConnectorError,
@@ -52,6 +52,62 @@ from .exceptions import (
 )
 from .layout import Panel
 from .typing import InfoData
+
+class Nanoleaf:  # ... existing class
+    # assumes: self._session (aiohttp.ClientSession), self._base like "http://host:16021/api/v1", self._token
+
+    async def authorize(self) -> Optional[str]:
+        """
+        Request an auth token while the controller is in link (pairing) mode.
+
+        Firmware variants:
+        - Most panels require POST /api/v1/new.
+        - Some newer firmwares (e.g. Outdoor String Lights) require GET /api/v1/new.
+        We try POST first, then fall back to GET if the method is rejected.
+        """
+        url = f"{self._base}/new"
+
+        async def _extract_token(text: str) -> Optional[str]:
+            try:
+                data = json.loads(text)
+            except Exception:
+                return None
+            # Be liberal with key names across firmwares/libs
+            return (
+                data.get("auth_token")
+                or data.get("authToken")
+                or data.get("token")
+                or None
+            )
+
+        # 1) Try POST first
+        try:
+            payload = {"client_name": "homeassistant", "client_version": "1.0"}
+            async with self._session.post(url, json=payload, timeout=10) as resp:
+                body = await resp.text()
+                if resp.status == 200:
+                    tok = _extract_token(body)
+                    if tok:
+                        self._token = tok
+                        return tok
+                # If pairing is not enabled, surface a clear error
+                if resp.status in (401, 403):
+                    raise RuntimeError("Pairing not enabled (hold power 5–7s on the controller).")
+                # Some devices answer 404/405/500 for POST — fall back to GET
+        except Exception:
+            pass  # fall through to GET
+
+        # 2) Fallback to GET /new (for firmwares that require GET)
+        async with self._session.get(url, timeout=10) as resp:
+            body = await resp.text()
+            if resp.status == 200:
+                tok = _extract_token(body)
+                if tok:
+                    self._token = tok
+                    return tok
+            if resp.status in (401, 403):
+                raise RuntimeError("Pairing not enabled (hold power 5–7s on the controller).")
+            raise RuntimeError(f"Authorization failed: {resp.status} {body[:256]}")
 
 
 def _format_host_for_url(host: str) -> str:

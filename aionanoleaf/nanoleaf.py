@@ -53,61 +53,87 @@ from .exceptions import (
 from .layout import Panel
 from .typing import InfoData
 
-class Nanoleaf:  # ... existing class
-    # assumes: self._session (aiohttp.ClientSession), self._base like "http://host:16021/api/v1", self._token
+_LOGGER = logging.getLogger(__name__)
+
+class Nanoleaf:  # existing class
+    # expects: self._session (aiohttp.ClientSession), self._base ("http://host:16021/api/v1"), self._token
 
     async def authorize(self) -> Optional[str]:
         """
         Request an auth token while the controller is in link (pairing) mode.
 
-        Firmware variants:
-        - Most panels require POST /api/v1/new.
-        - Some newer firmwares (e.g. Outdoor String Lights) require GET /api/v1/new.
-        We try POST first, then fall back to GET if the method is rejected.
+        Tries POST /api/v1/new (classic firmware) then falls back to GET /api/v1/new
+        (required on some newer firmwares). Emits DEBUG logs with status/body preview.
         """
         url = f"{self._base}/new"
 
-        async def _extract_token(text: str) -> Optional[str]:
-            try:
-                data = json.loads(text)
-            except Exception:
-                return None
-            # Be liberal with key names across firmwares/libs
-            return (
-                data.get("auth_token")
-                or data.get("authToken")
-                or data.get("token")
-                or None
-            )
+        def _extract_token(obj: Any) -> Optional[str]:
+            # Common shapes: {"auth_token": "..."}, {"authToken": "..."}, {"token": "..."}
+            # Some return {"success":{"token":"..."}}. Others a list of dicts.
+            if isinstance(obj, dict):
+                for k in ("auth_token", "authToken", "token"):
+                    v = obj.get(k)
+                    if isinstance(v, str):
+                        return v
+                success = obj.get("success")
+                if isinstance(success, dict):
+                    for k in ("auth_token", "authToken", "token"):
+                        v = success.get(k)
+                        if isinstance(v, str):
+                            return v
+            elif isinstance(obj, list):
+                for it in obj:
+                    tok = _extract_token(it)
+                    if tok:
+                        return tok
+            return None
 
-        # 1) Try POST first
-        try:
-            payload = {"client_name": "homeassistant", "client_version": "1.0"}
-            async with self._session.post(url, json=payload, timeout=10) as resp:
-                body = await resp.text()
+        async def _try_post() -> Optional[str]:
+            import aiohttp
+            try:
+                payload = {"client_name": "homeassistant", "client_version": "1.0"}
+                async with self._session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    text = await resp.text()
+                    _LOGGER.debug("authorize(POST): %s -> %s; body=%s", url, resp.status, text[:256])
+                    if resp.status == 200:
+                        try:
+                            data = json.loads(text)
+                        except Exception:
+                            data = None
+                        tok = _extract_token(data)
+                        if tok:
+                            self._token = tok
+                            return tok
+                    if resp.status in (401, 403):
+                        raise RuntimeError("Pairing not enabled (hold power 5–7s).")
+                    # 404/405/500 -> let GET try
+            except Exception as exc:
+                _LOGGER.debug("authorize(POST): exception: %s", exc)
+            return None
+
+        async def _try_get() -> Optional[str]:
+            import aiohttp
+            async with self._session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                text = await resp.text()
+                _LOGGER.debug("authorize(GET):  %s -> %s; body=%s", url, resp.status, text[:256])
                 if resp.status == 200:
-                    tok = _extract_token(body)
+                    try:
+                        data = json.loads(text)
+                    except Exception:
+                        data = None
+                    tok = _extract_token(data)
                     if tok:
                         self._token = tok
                         return tok
-                # If pairing is not enabled, surface a clear error
                 if resp.status in (401, 403):
-                    raise RuntimeError("Pairing not enabled (hold power 5–7s on the controller).")
-                # Some devices answer 404/405/500 for POST — fall back to GET
-        except Exception:
-            pass  # fall through to GET
+                    raise RuntimeError("Pairing not enabled (hold power 5–7s).")
+                raise RuntimeError(f"Authorization failed: {resp.status} {text[:256]}")
 
-        # 2) Fallback to GET /new (for firmwares that require GET)
-        async with self._session.get(url, timeout=10) as resp:
-            body = await resp.text()
-            if resp.status == 200:
-                tok = _extract_token(body)
-                if tok:
-                    self._token = tok
-                    return tok
-            if resp.status in (401, 403):
-                raise RuntimeError("Pairing not enabled (hold power 5–7s on the controller).")
-            raise RuntimeError(f"Authorization failed: {resp.status} {body[:256]}")
+        token = await _try_post()
+        if token:
+            return token
+        return await _try_get()
+
 
 
 def _format_host_for_url(host: str) -> str:

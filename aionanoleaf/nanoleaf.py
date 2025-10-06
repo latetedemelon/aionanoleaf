@@ -56,34 +56,29 @@ from .typing import InfoData
 _LOGGER = logging.getLogger(__name__)
 
 class Nanoleaf:  # existing class
-    # expects: self._session (aiohttp.ClientSession), self._base ("http://host:16021/api/v1"), self._token
-
     async def authorize(self) -> Optional[str]:
-        """
-        Request an auth token while the controller is in link (pairing) mode.
+        """Obtain a token while device is in link mode.
 
-        Tries POST /api/v1/new (classic firmware) then falls back to GET /api/v1/new
-        (required on some newer firmwares). Emits DEBUG logs with status/body preview.
+        Tries POST /api/v1/new (classic) then GET /api/v1/new (newer fw).
+        Logs status + short body preview at DEBUG and accepts multiple JSON shapes.
         """
         url = f"{self._base}/new"
 
         def _extract_token(obj: Any) -> Optional[str]:
-            # Common shapes: {"auth_token": "..."}, {"authToken": "..."}, {"token": "..."}
-            # Some return {"success":{"token":"..."}}. Others a list of dicts.
             if isinstance(obj, dict):
                 for k in ("auth_token", "authToken", "token"):
                     v = obj.get(k)
                     if isinstance(v, str):
                         return v
-                success = obj.get("success")
-                if isinstance(success, dict):
+                succ = obj.get("success")
+                if isinstance(succ, dict):
                     for k in ("auth_token", "authToken", "token"):
-                        v = success.get(k)
+                        v = succ.get(k)
                         if isinstance(v, str):
                             return v
             elif isinstance(obj, list):
-                for it in obj:
-                    tok = _extract_token(it)
+                for item in obj:
+                    tok = _extract_token(item)
                     if tok:
                         return tok
             return None
@@ -106,7 +101,6 @@ class Nanoleaf:  # existing class
                             return tok
                     if resp.status in (401, 403):
                         raise RuntimeError("Pairing not enabled (hold power 5–7s).")
-                    # 404/405/500 -> let GET try
             except Exception as exc:
                 _LOGGER.debug("authorize(POST): exception: %s", exc)
             return None

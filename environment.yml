@@ -1,14 +1,23 @@
-name: aionanoleaf
+name: aionanoleaf-ha-2025.10.1
 channels:
   - conda-forge
 dependencies:
-  - python=3.10
+  # Match HA's current Python baseline (3.13+) for 2025.x
+  - python=3.13
   - pip
   - pip:
-      - aiohttp>=3.9
-      - typing-extensions>=4.7
-      - pytest>=7.4
-      - pytest-asyncio>=0.23
-      - flake8>=6.1
-      - anyio>=4
+      # Pins that HA 2025.10.1 requires
+      - aiohttp==3.12.15         # was 3.13.0
+      - yarl==1.20.1             # was 1.22.0
+      - attrs==25.3.0            # was 25.4.0
+      - propcache==0.3.2         # was 0.4.0
+
+      # Third-party complaint you saw
+      - dacite>=1.8.1            # was 1.8.0 (too low for igloohome-api)
+
+      # Dev/test tooling (kept broad but modern)
+      - typing-extensions>=4.12
+      - pytest>=8
+      - pytest-asyncio>=0.25.3
+      - flake8
       - build

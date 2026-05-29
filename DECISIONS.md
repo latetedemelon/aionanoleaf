@@ -58,6 +58,15 @@ tests gave false confidence.
    3.11–3.13 and added a `pytest` step (CI previously never ran the tests);
    bumped version `0.3.1 → 0.4.0`; documented the helper clients in the README.
 
+8. **`pylint.yml` workflow.** This separate workflow ran
+   `pylint $(git ls-files '*.py')`, which lints test scaffolding too — contrary
+   to the `.pylintrc` `ignore=tests,examples` intent. It was already red on
+   `master` (the duplicate class triggered `E0102`). Scoped it to
+   `pylint aionanoleaf` (now 10.00/10) and modernised its matrix to 3.11–3.13.
+   Note: `setup.py` still declares `python_requires=">=3.8"` (the basic client
+   works there via `from __future__ import annotations`); only the CI test
+   matrix was modernised.
+
 ## Verification
 
 `pytest` (14 passed, incl. new `tests/test_nanoleaf_transport.py` which drives

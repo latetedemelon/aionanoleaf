@@ -24,6 +24,9 @@ that wire the high-level helper clients (:class:`EffectsClient`,
 device is required.
 """
 
+# pylint: disable=missing-class-docstring,missing-function-docstring
+# pylint: disable=too-few-public-methods,unused-argument,protected-access
+
 import json
 
 try:
@@ -70,7 +73,9 @@ class FakeResponse:
         return self._payload
 
 
-_NO_CONTENT = lambda: FakeResponse(status=204, content_length=0)  # noqa: E731
+def _no_content():
+    """Factory for a 204 No Content response."""
+    return FakeResponse(status=204, content_length=0)
 
 
 class FakeSession:
@@ -126,14 +131,14 @@ async def test_get_json_returns_payload():
 
 @pytest.mark.asyncio
 async def test_put_json_handles_no_content():
-    nl, session = _make({("put", "state"): _NO_CONTENT})
+    nl, session = _make({("put", "state"): _no_content})
     assert await nl._put_json("state", {"on": {"value": True}}) is None
     assert session.last("put", "state") == {"on": {"value": True}}
 
 
 @pytest.mark.asyncio
 async def test_write_effect_wraps_payload_and_targets_effects():
-    nl, session = _make({("put", "effects"): _NO_CONTENT})
+    nl, session = _make({("put", "effects"): _no_content})
     await nl.write_effect({"command": "display", "animType": "static"})
     assert session.last("put", "effects") == {
         "write": {"command": "display", "animType": "static"}
@@ -151,7 +156,7 @@ async def test_effects_client_through_real_transport():
         {
             ("get", "effects/effectsList"): lambda: FakeResponse(payload=["A", "B"]),
             ("get", "effects/select"): lambda: FakeResponse(payload="B"),
-            ("put", "effects"): _NO_CONTENT,
+            ("put", "effects"): _no_content,
         }
     )
     client = EffectsClient(nl)
@@ -168,7 +173,7 @@ async def test_layout_client_through_real_transport():
             ("get", "panelLayout/globalOrientation"): lambda: FakeResponse(
                 payload={"value": 90}
             ),
-            ("put", "panelLayout/globalOrientation"): _NO_CONTENT,
+            ("put", "panelLayout/globalOrientation"): _no_content,
         }
     )
     client = LayoutClient(nl)
@@ -184,7 +189,7 @@ async def test_rhythm_client_through_real_transport():
             ("get", "rhythm"): lambda: FakeResponse(
                 payload={"rhythmActive": True, "rhythmMode": 0}
             ),
-            ("put", "rhythm"): _NO_CONTENT,
+            ("put", "rhythm"): _no_content,
         }
     )
     client = RhythmClient(nl)
@@ -229,7 +234,7 @@ async def test_digital_twin_sync_through_real_transport():
     nl, session = _make(
         {
             ("get", ""): lambda: FakeResponse(payload=_full_info(position_data)),
-            ("put", "effects"): _NO_CONTENT,
+            ("put", "effects"): _no_content,
         }
     )
     twin = await DigitalTwin.create(nl)

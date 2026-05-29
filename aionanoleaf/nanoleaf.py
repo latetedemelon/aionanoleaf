@@ -360,7 +360,12 @@ class Nanoleaf:
         self._color_mode = data["state"]["colorMode"]
         self._effects_list = data["effects"]["effectsList"]
         self._effect = data["effects"]["select"]
-        self._panels = {Panel(panel) for panel in data["panelLayout"]["layout"]["positionData"]}
+        # Panel devices report a layout; tolerate devices/firmware that omit it.
+        try:
+            position_data = data["panelLayout"]["layout"]["positionData"]
+        except (KeyError, TypeError):
+            position_data = []
+        self._panels = {Panel(panel) for panel in position_data}
 
     async def set_state(
         self,

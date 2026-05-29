@@ -193,7 +193,10 @@ class TouchStreamEvent:
 
     @property
     def panel_id_2(self) -> int | None:
-        """Return second panel ID."""
-        if self._panel_id_2 == 2 ^ 16:
+        """Return second panel ID, or None when there is no paired panel."""
+        # The panel ID is a 16-bit field; an all-ones value (0xFFFF) is the
+        # protocol sentinel for "no second panel". The previous ``2 ^ 16``
+        # was a bitwise-XOR typo that evaluated to 18.
+        if self._panel_id_2 == 0xFFFF:
             return None
         return self._panel_id_2

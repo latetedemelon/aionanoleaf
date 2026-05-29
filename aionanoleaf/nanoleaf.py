@@ -23,7 +23,7 @@ import asyncio
 import json
 import logging
 import socket
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from aiohttp import (
     ClientConnectorError,
@@ -55,80 +55,6 @@ from .typing import InfoData
 
 _LOGGER = logging.getLogger(__name__)
 
-class Nanoleaf:  # existing class
-    async def authorize(self) -> Optional[str]:
-        """Obtain a token while device is in link mode.
-
-        Tries POST /api/v1/new (classic) then GET /api/v1/new (newer fw).
-        Logs status + short body preview at DEBUG and accepts multiple JSON shapes.
-        """
-        url = f"{self._base}/new"
-
-        def _extract_token(obj: Any) -> Optional[str]:
-            if isinstance(obj, dict):
-                for k in ("auth_token", "authToken", "token"):
-                    v = obj.get(k)
-                    if isinstance(v, str):
-                        return v
-                succ = obj.get("success")
-                if isinstance(succ, dict):
-                    for k in ("auth_token", "authToken", "token"):
-                        v = succ.get(k)
-                        if isinstance(v, str):
-                            return v
-            elif isinstance(obj, list):
-                for item in obj:
-                    tok = _extract_token(item)
-                    if tok:
-                        return tok
-            return None
-
-        async def _try_post() -> Optional[str]:
-            import aiohttp
-            try:
-                payload = {"client_name": "homeassistant", "client_version": "1.0"}
-                async with self._session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                    text = await resp.text()
-                    _LOGGER.debug("authorize(POST): %s -> %s; body=%s", url, resp.status, text[:256])
-                    if resp.status == 200:
-                        try:
-                            data = json.loads(text)
-                        except Exception:
-                            data = None
-                        tok = _extract_token(data)
-                        if tok:
-                            self._token = tok
-                            return tok
-                    if resp.status in (401, 403):
-                        raise RuntimeError("Pairing not enabled (hold power 5–7s).")
-            except Exception as exc:
-                _LOGGER.debug("authorize(POST): exception: %s", exc)
-            return None
-
-        async def _try_get() -> Optional[str]:
-            import aiohttp
-            async with self._session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                text = await resp.text()
-                _LOGGER.debug("authorize(GET):  %s -> %s; body=%s", url, resp.status, text[:256])
-                if resp.status == 200:
-                    try:
-                        data = json.loads(text)
-                    except Exception:
-                        data = None
-                    tok = _extract_token(data)
-                    if tok:
-                        self._token = tok
-                        return tok
-                if resp.status in (401, 403):
-                    raise RuntimeError("Pairing not enabled (hold power 5–7s).")
-                raise RuntimeError(f"Authorization failed: {resp.status} {text[:256]}")
-
-        token = await _try_post()
-        if token:
-            return token
-        return await _try_get()
-
-
 
 def _format_host_for_url(host: str) -> str:
     """Return host formatted for http URLs; wrap bare IPv6 literals in [].
@@ -146,9 +72,6 @@ def _format_host_for_url(host: str) -> str:
     if ":" in h and re.fullmatch(r"[0-9A-Fa-f:]+", h):
         return f"[{h}]"
     return h
-
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class Nanoleaf:
@@ -313,7 +236,7 @@ class Nanoleaf:
 
     @property
     def _api_url(self) -> str:
-        return f"http://{self.host}:{self.port}/api/v1"
+        return f"http://{_format_host_for_url(self.host)}:{self.port}/api/v1"
 
     async def _request(
         self, method: str, path: str, data: dict | None = None
@@ -351,6 +274,41 @@ class Nanoleaf:
             raise InvalidToken
         resp.raise_for_status()
         return resp
+
+    async def _get_json(self, path: str) -> Any:
+        """GET ``path`` (relative to the auth root) and return parsed JSON.
+
+        ``path`` may be given with or without a leading slash, e.g.
+        ``"/effects/select"`` or ``"panelLayout/layout"``. This is the
+        transport used by the helper clients (:class:`~aionanoleaf.effects.
+        EffectsClient`, :class:`~aionanoleaf.layout.LayoutClient` and
+        :class:`~aionanoleaf.rhythm.RhythmClient`).
+        """
+        resp = await self._request("get", path.lstrip("/"))
+        return await resp.json(content_type=None)
+
+    async def _put_json(self, path: str, body: dict | None = None) -> Any:
+        """PUT ``body`` as JSON to ``path``; return parsed JSON if any.
+
+        Many Nanoleaf write endpoints answer with ``204 No Content`` (or an
+        empty body), in which case ``None`` is returned.
+        """
+        resp = await self._request("put", path.lstrip("/"), body)
+        if resp.status == 204 or resp.content_length == 0:
+            return None
+        try:
+            return await resp.json(content_type=None)
+        except ValueError:  # empty or non-JSON body
+            return None
+
+    async def write_effect(self, write_dict: dict) -> None:
+        """Write (and optionally select) an effect via ``PUT /effects``.
+
+        ``write_dict`` is the inner ``write`` command payload, e.g. the
+        ``{"command": "display", "animType": "static", ...}`` dict built by
+        :class:`~aionanoleaf.digital_twin.DigitalTwin`.
+        """
+        await self._put_json("effects", {"write": dict(write_dict)})
 
     async def authorize(self) -> None:
         """

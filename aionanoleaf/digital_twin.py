@@ -151,7 +151,9 @@ def _get_object_positions(nl: Any) -> List[_Panel]:
     """Fallback: infer from nl.panels/_panels objects with id/x/y attributes."""
     candidates = getattr(nl, "panels", None) or getattr(nl, "_panels", None)
     panels: List[_Panel] = []
-    if not isinstance(candidates, (list, tuple)):
+    # ``Nanoleaf.panels`` returns a ``set`` of Panel objects, so accept any
+    # (non-string) collection here, not just list/tuple.
+    if not isinstance(candidates, (list, tuple, set, frozenset)):
         return panels
 
     for obj in candidates:

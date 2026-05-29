@@ -8,4 +8,12 @@ build-backend = "setuptools.build_meta"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-asyncio_mode = "strict"
+
+[tool.mypy]
+python_version = "3.11"
+
+# ``aiohttp`` is an optional/runtime dependency whose type information is not
+# always resolvable in the lint environment; don't fail the type check on it.
+[[tool.mypy.overrides]]
+module = ["aiohttp", "aiohttp.*"]
+ignore_missing_imports = true

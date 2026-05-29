@@ -32,6 +32,39 @@ class EffectsClient:
             return str(data["select"])
         return ""
 
+    async def get_effects_detail(self) -> list[dict]:
+        """Return full metadata for every stored effect.
+
+        Issues ``PUT /effects`` with the ``requestAll`` command and returns the
+        ``animations`` list. Each item includes ``animName`` and, for plugin
+        effects, ``pluginType``. Returns ``[]`` if the device/firmware does not
+        answer in the expected shape.
+        """
+        # pylint: disable=protected-access
+        data = await self._nl._put_json(  # type: ignore[attr-defined]
+            "/effects", {"write": {"command": "requestAll"}}
+        )
+        if isinstance(data, dict):
+            anims = data.get("animations")
+            if isinstance(anims, list):
+                return [a for a in anims if isinstance(a, dict)]
+        return []
+
+    async def get_rhythm_effects(self) -> list[str]:
+        """Return the names of sound-reactive (rhythm) effects.
+
+        A rhythm effect is a plugin effect whose ``pluginType`` is ``"rhythm"``;
+        these react to audio captured by the device's microphone (or aux input),
+        i.e. they are the "music sync" effects.
+        """
+        names: list[str] = []
+        for anim in await self.get_effects_detail():
+            if anim.get("pluginType") == "rhythm":
+                name = anim.get("animName")
+                if isinstance(name, str):
+                    names.append(name)
+        return names
+
     async def select_effect(self, name: str) -> None:
         """Select an existing effect by name."""
         # pylint: disable=protected-access

@@ -84,11 +84,18 @@ angle = await layout.get_global_orientation()        # int degrees (0..360)
 await layout.set_global_orientation(180)
 ```
 
-## Rhythm / audio module
+## Rhythm / audio module (music sync)
 ```python
-from aionanoleaf import RhythmClient
+from aionanoleaf import EffectsClient, RhythmClient
 
 rhythm = RhythmClient(light)
-if await rhythm.is_active():
-    await rhythm.set_mode("aux")  # or "microphone" / 0 / 1
+if await rhythm.is_connected():            # a sound module / mic is present
+    aux = await rhythm.get_aux_available()  # 3.5mm aux input present?
+    await rhythm.set_mode("microphone")     # or "aux" / 0 / 1
+    print("listening:", await rhythm.is_active())
+
+# Discover the sound-reactive ("music sync") effects, then select one:
+effects = EffectsClient(light)
+for name in await effects.get_rhythm_effects():  # pluginType == "rhythm"
+    print("music effect:", name)
 ```

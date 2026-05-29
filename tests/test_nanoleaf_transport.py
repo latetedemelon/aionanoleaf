@@ -199,6 +199,46 @@ async def test_rhythm_client_through_real_transport():
     assert session.last("put", "rhythm") == {"rhythmMode": 1}
 
 
+@pytest.mark.asyncio
+async def test_rhythm_connected_and_aux():
+    nl, _ = _make(
+        {
+            ("get", "rhythm"): lambda: FakeResponse(
+                payload={"rhythmConnected": True, "auxAvailable": False}
+            ),
+        }
+    )
+    client = RhythmClient(nl)
+    assert await client.is_connected() is True
+    assert await client.get_aux_available() is False
+
+
+@pytest.mark.asyncio
+async def test_rhythm_effects_discovery():
+    animations = {
+        "animations": [
+            {"animName": "Flames", "pluginType": "color"},
+            {"animName": "Pulse Pop Beats", "pluginType": "rhythm"},
+            {"animName": "Streaking Notes", "pluginType": "rhythm"},
+            {"animName": "Nemo"},  # no pluginType
+        ]
+    }
+    nl, session = _make({("put", "effects"): lambda: FakeResponse(payload=animations)})
+    client = EffectsClient(nl)
+    assert await client.get_rhythm_effects() == ["Pulse Pop Beats", "Streaking Notes"]
+    # requestAll is sent as a write command.
+    assert session.last("put", "effects") == {"write": {"command": "requestAll"}}
+
+
+@pytest.mark.asyncio
+async def test_get_info_tolerates_missing_panel_layout():
+    info = _full_info([])
+    del info["panelLayout"]  # e.g. a non-panel / unexpected device shape
+    nl, _ = _make({("get", ""): lambda: FakeResponse(payload=info)})
+    await nl.get_info()  # must not raise
+    assert nl.panels == set()
+
+
 # --------------------------------------------------------------------------- #
 # Digital twin end-to-end against the real transport
 # --------------------------------------------------------------------------- #

@@ -48,6 +48,16 @@ class RhythmClient:
             return val.lower() in ("1", "true", "yes", "on")
         return False
 
+    async def is_connected(self) -> bool:
+        """Return /rhythm.rhythmConnected (whether a sound module is present)."""
+        info = await self.get_info()
+        return bool(info.get("rhythmConnected"))
+
+    async def get_aux_available(self) -> bool:
+        """Return /rhythm.auxAvailable (whether the 3.5mm aux input exists)."""
+        info = await self.get_info()
+        return bool(info.get("auxAvailable"))
+
     async def get_mode(self) -> Optional[int]:
         """Return /rhythm.rhythmMode as int if present."""
         info = await self.get_info()

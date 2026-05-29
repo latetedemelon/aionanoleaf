@@ -78,3 +78,18 @@ the helper clients and Digital Twin through a fake `aiohttp` session),
 - No behavioural change to `authorize()` — the HA `config_flow` depends on its
   current exception contract (`Unauthorized` / `Unavailable`).
 - No hard dependency added on `pytest-asyncio` (the conftest covers both cases).
+
+## Follow-up: music-sync & broader hardware support (0.5.0)
+
+- `EffectsClient.get_effects_detail()` / `get_rhythm_effects()` — discover
+  sound-reactive effects via `PUT /effects {"write": {"command": "requestAll"}}`,
+  filtering `pluginType == "rhythm"` (confirmed against the Nanoleaf OpenAPI and
+  the openHAB / rowak implementations). Best-effort: returns `[]` if a device or
+  firmware answers in a different shape, so callers degrade gracefully.
+- `RhythmClient.is_connected()` / `get_aux_available()` — expose mic/sound-module
+  presence and aux availability (answers "does this device have a mic?").
+- `get_info()` now tolerates devices that omit `panelLayout` (no `KeyError`), so
+  non-panel / unusually-shaped responses don't break setup.
+- Unit-tested with mocked `requestAll`/`rhythm` responses through the real
+  transport. Not verifiable on hardware here, so the effect-discovery feature is
+  documented as best-effort.

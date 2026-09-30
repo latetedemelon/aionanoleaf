@@ -1,3 +1,29 @@
+> [!WARNING]
+> **Archived — use [latetedemelon/aionanoleaf2](https://github.com/latetedemelon/aionanoleaf2) instead.**
+>
+> This was a fork of [milanmeu/aionanoleaf](https://github.com/milanmeu/aionanoleaf),
+> whose last release was in 2022. Home Assistant replaced that library with
+> `aionanoleaf2` in core commit
+> [8693294ea](https://github.com/home-assistant/core/commit/8693294ea), shipped
+> in 2026.3, so this lineage is a dead end.
+>
+> Everything added here has moved to `aionanoleaf2`:
+>
+> | Here (0.5.0) | In aionanoleaf2 |
+> | --- | --- |
+> | `DigitalTwin` | `Nanoleaf.digital_twin()`, plus UDP streaming for animation |
+> | `RhythmClient` | `get_rhythm()`, `set_rhythm_mode()` and the `rhythm_*` properties |
+> | `LayoutClient` orientation | `get_global_orientation()` / `set_global_orientation()` |
+> | `EffectsClient.get_rhythm_effects` | `get_rhythm_effects()`, `get_effect_details()` |
+> | `DigitalTwin.apply_temp` | `DigitalTwin.show_temporarily()` |
+>
+> `aionanoleaf2` additionally supports Nanoleaf Essentials and Matter Wi-Fi
+> devices, 4D screen-mirroring modes and IPv6 hosts, and fixes several bugs
+> that were present here.
+>
+> [latetedemelon/ha-nanoleaf](https://github.com/latetedemelon/ha-nanoleaf)
+> points at `aionanoleaf2` as of its 2.0.0 release.
+
 # aioNanoleaf package 
 [![PyPI](https://img.shields.io/pypi/v/aionanoleaf)](https://pypi.org/project/aionanoleaf/) ![PyPI - Downloads](https://img.shields.io/pypi/dm/aionanoleaf) [![PyPI - License](https://img.shields.io/pypi/l/aionanoleaf?color=blue)](https://github.com/milanmeu/aionanoleaf/blob/main/COPYING)
 
